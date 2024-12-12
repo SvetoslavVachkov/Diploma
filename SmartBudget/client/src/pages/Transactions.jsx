@@ -6,6 +6,12 @@ const Transactions = () => {
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
+  const [receiptModal, setReceiptModal] = useState(false);
+  const [receiptText, setReceiptText] = useState('');
+  const [receiptFile, setReceiptFile] = useState(null);
+  const [receiptResult, setReceiptResult] = useState(null);
+  const [receiptLoading, setReceiptLoading] = useState(false);
+  const [receiptError, setReceiptError] = useState('');
   const [formData, setFormData] = useState({
     description: '',
     amount: '',
@@ -20,13 +26,19 @@ const Transactions = () => {
 
   const fetchData = async () => {
     try {
+      setLoading(true);
       const [txRes, catRes] = await Promise.all([
         api.get('/financial/transactions'),
         api.get('/financial/categories')
       ]);
-      setTransactions(txRes.data.data.transactions);
-      setCategories(catRes.data.data);
+      const transactionsData = Array.isArray(txRes.data.data)
+        ? txRes.data.data
+        : (txRes.data.data?.transactions || txRes.data.data || []);
+      setTransactions(transactionsData);
+      setCategories(catRes.data.data || []);
     } catch (error) {
+      setTransactions([]);
+      setCategories([]);
     } finally {
       setLoading(false);
     }
@@ -80,6 +92,40 @@ const Transactions = () => {
     e.target.value = '';
   };
 
+  const handleReceiptScan = async (e) => {
+    e.preventDefault();
+    setReceiptError('');
+    setReceiptLoading(true);
+    setReceiptResult(null);
+    try {
+      const form = new FormData();
+      if (receiptText.trim()) {
+        form.append('receipt_text', receiptText);
+      }
+      if (receiptFile) {
+        form.append('receiptFile', receiptFile);
+      }
+      if (!receiptText.trim() && !receiptFile) {
+        setReceiptError('Добавете текст или файл.');
+        setReceiptLoading(false);
+        return;
+      }
+      const response = await api.post('/financial/receipts/scan', form, {
+        headers: {
+          'Content-Type': 'multipart/form-data'
+        }
+      });
+      setReceiptResult(response.data.data);
+      fetchData();
+      setReceiptText('');
+      setReceiptFile(null);
+    } catch (error) {
+      setReceiptError(error.response?.data?.message || 'Грешка при сканиране на бележка.');
+    } finally {
+      setReceiptLoading(false);
+    }
+  };
+
   if (loading) {
     return <div style={styles.loading}>Зареждане...</div>;
   }
@@ -91,9 +137,23 @@ const Transactions = () => {
     <div>
       <div style={styles.header}>
         <h1 style={styles.title}>Транзакции</h1>
-        <button onClick={() => setShowModal(true)} style={styles.addButton}>
-          + Добави транзакция
-        </button>
+        <div style={styles.headerActions}>
+          <button onClick={() => setReceiptModal(true)} style={styles.secondaryButton}>
+            Сканирай бележка
+          </button>
+          <label style={styles.uploadButton}>
+            Импортирай CSV
+            <input
+              type="file"
+              accept=".csv"
+              onChange={handleCSVUpload}
+              style={{ display: 'none' }}
+            />
+          </label>
+          <button onClick={() => setShowModal(true)} style={styles.addButton}>
+            + Добави транзакция
+          </button>
+        </div>
       </div>
 
       {showModal && (
@@ -152,6 +212,55 @@ const Transactions = () => {
                 </button>
                 <button type="submit" style={styles.submitButton}>
                   Запази
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {receiptModal && (
+        <div style={styles.modalOverlay} onClick={() => setReceiptModal(false)}>
+          <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
+            <h2 style={styles.modalTitle}>Сканирай бележка</h2>
+            <form onSubmit={handleReceiptScan} style={styles.form}>
+              <textarea
+                placeholder="Поставете текст от бележка"
+                value={receiptText}
+                onChange={(e) => setReceiptText(e.target.value)}
+                style={styles.textarea}
+                rows={5}
+              />
+              <input
+                type="file"
+                accept=".txt"
+                onChange={(e) => setReceiptFile(e.target.files[0])}
+                style={styles.input}
+              />
+              {receiptError && <div style={styles.errorBox}>{receiptError}</div>}
+              {receiptResult && (
+                <div style={styles.resultBox}>
+                  <p style={styles.resultTitle}>Импортирани: {receiptResult.imported} / {receiptResult.total}</p>
+                  <div style={styles.resultList}>
+                    {receiptResult.results.map((item, idx) => (
+                      <div key={`${item.description}-${idx}`} style={styles.resultItem}>
+                        <div>
+                          <div style={styles.resultDesc}>{item.description}</div>
+                          <div style={styles.resultCategory}>{item.category || 'Без категория'}</div>
+                        </div>
+                        <div style={styles.resultAmount}>{item.amount.toFixed(2)} лв</div>
+                        <div style={styles.resultStatus}>{item.status === 'imported' ? 'Добавена' : 'Грешка'}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <div style={styles.modalActions}>
+                <button type="button" onClick={() => setReceiptModal(false)} style={styles.cancelButton}>
+                  Затвори
+                </button>
+                <button type="submit" style={styles.submitButton} disabled={receiptLoading}>
+                  {receiptLoading ? 'Сканиране...' : 'Сканирай'}
                 </button>
               </div>
             </form>
@@ -386,6 +495,98 @@ const styles = {
     color: 'white',
     fontSize: '18px',
     padding: '40px'
+  },
+  headerActions: {
+    display: 'flex',
+    gap: '12px',
+    alignItems: 'center'
+  },
+  secondaryButton: {
+    padding: '12px 24px',
+    background: 'white',
+    color: '#667eea',
+    border: '2px solid #667eea',
+    borderRadius: '8px',
+    fontSize: '16px',
+    fontWeight: '600',
+    cursor: 'pointer'
+  },
+  uploadButton: {
+    padding: '12px 24px',
+    background: 'white',
+    color: '#667eea',
+    border: '2px solid #667eea',
+    borderRadius: '8px',
+    fontSize: '16px',
+    fontWeight: '600',
+    cursor: 'pointer',
+    display: 'inline-block'
+  },
+  errorBox: {
+    background: '#fee2e2',
+    color: '#991b1b',
+    padding: '12px',
+    borderRadius: '8px',
+    marginBottom: '16px',
+    fontSize: '14px'
+  },
+  textarea: {
+    padding: '12px',
+    border: '2px solid #e0e0e0',
+    borderRadius: '8px',
+    fontSize: '16px',
+    outline: 'none',
+    resize: 'vertical',
+    fontFamily: 'inherit'
+  },
+  resultBox: {
+    background: '#f9fafb',
+    borderRadius: '8px',
+    padding: '16px',
+    marginBottom: '16px'
+  },
+  resultTitle: {
+    fontSize: '16px',
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: '12px'
+  },
+  resultList: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '8px'
+  },
+  resultItem: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: '12px',
+    background: 'white',
+    borderRadius: '6px',
+    border: '1px solid #e0e0e0'
+  },
+  resultDesc: {
+    fontSize: '14px',
+    fontWeight: '500',
+    color: '#333',
+    marginBottom: '4px'
+  },
+  resultCategory: {
+    fontSize: '12px',
+    color: '#666'
+  },
+  resultAmount: {
+    fontSize: '14px',
+    fontWeight: '600',
+    color: '#333',
+    marginRight: '12px'
+  },
+  resultStatus: {
+    fontSize: '12px',
+    padding: '4px 8px',
+    borderRadius: '4px',
+    background: '#d1fae5',
+    color: '#065f46'
   }
 };
 
