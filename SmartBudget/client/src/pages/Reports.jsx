@@ -28,6 +28,7 @@ const Reports = () => {
   const [spendingReport, setSpendingReport] = useState(null);
   const [monthlyReport, setMonthlyReport] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
 
@@ -37,6 +38,7 @@ const Reports = () => {
 
   const fetchReports = async () => {
     try {
+      setError('');
       const params = {};
       if (dateFrom) params.date_from = dateFrom;
       if (dateTo) params.date_to = dateTo;
@@ -50,9 +52,12 @@ const Reports = () => {
           }
         })
       ]);
-      setSpendingReport(spendingRes.data.data);
-      setMonthlyReport(monthlyRes.data.data);
-    } catch (error) {
+      setSpendingReport(spendingRes.data.data || null);
+      setMonthlyReport(monthlyRes.data.data || null);
+    } catch (err) {
+      setError('Грешка при зареждане на отчетите');
+      setSpendingReport(null);
+      setMonthlyReport(null);
     } finally {
       setLoading(false);
     }
@@ -118,6 +123,12 @@ const Reports = () => {
           />
         </div>
       </div>
+
+      {error && (
+        <div style={styles.errorBox}>
+          {error}
+        </div>
+      )}
 
       {spendingReport && (
         <div style={styles.summarySection}>
@@ -448,6 +459,14 @@ const styles = {
     color: 'white',
     fontSize: '18px',
     padding: '40px'
+  },
+  errorBox: {
+    background: '#fee2e2',
+    color: '#991b1b',
+    padding: '12px',
+    borderRadius: '8px',
+    marginBottom: '20px',
+    fontSize: '14px'
   }
 };
 

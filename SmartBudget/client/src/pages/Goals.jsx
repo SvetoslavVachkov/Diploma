@@ -5,6 +5,7 @@ const Goals = () => {
   const [goals, setGoals] = useState([]);
   const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [formData, setFormData] = useState({
     title: '',
@@ -21,13 +22,17 @@ const Goals = () => {
 
   const fetchData = async () => {
     try {
+      setError('');
       const [goalsRes, summaryRes] = await Promise.all([
         api.get('/financial/goals'),
         api.get('/financial/goals/summary')
       ]);
-      setGoals(goalsRes.data.data);
-      setSummary(summaryRes.data.data);
-    } catch (error) {
+      setGoals(goalsRes.data.data || []);
+      setSummary(summaryRes.data.data || null);
+    } catch (err) {
+      setError('Грешка при зареждане на целите');
+      setGoals([]);
+      setSummary(null);
     } finally {
       setLoading(false);
     }
@@ -36,6 +41,7 @@ const Goals = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
+      setError('');
       await api.post('/financial/goals', formData);
       setShowModal(false);
       setFormData({
@@ -47,24 +53,29 @@ const Goals = () => {
         goal_type: 'savings'
       });
       fetchData();
-    } catch (error) {
+    } catch (err) {
+      setError(err.response?.data?.message || 'Грешка при създаване на цел');
     }
   };
 
   const handleAddAmount = async (goalId, amount) => {
     try {
+      setError('');
       await api.post(`/financial/goals/${goalId}/add`, { amount });
       fetchData();
-    } catch (error) {
+    } catch (err) {
+      setError(err.response?.data?.message || 'Грешка при добавяне на сума');
     }
   };
 
   const handleDelete = async (id) => {
     if (window.confirm('Сигурни ли сте?')) {
       try {
+        setError('');
         await api.delete(`/financial/goals/${id}`);
         fetchData();
-      } catch (error) {
+      } catch (err) {
+        setError(err.response?.data?.message || 'Грешка при изтриване на цел');
       }
     }
   };
@@ -81,6 +92,12 @@ const Goals = () => {
           + Нова цел
         </button>
       </div>
+
+      {error && (
+        <div style={styles.errorBox}>
+          {error}
+        </div>
+      )}
 
       {summary && (
         <div style={styles.summaryCards}>
