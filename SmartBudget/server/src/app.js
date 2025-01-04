@@ -42,7 +42,9 @@ app.use((req, res) => {
 });
 
 app.use((err, req, res, next) => {
-  console.error('Error:', err);
+  if (process.env.NODE_ENV === 'development') {
+    console.error('Server error:', err.message);
+  }
   res.status(err.status || 500).json({
     status: 'error',
     message: process.env.NODE_ENV === 'production' 
@@ -56,16 +58,11 @@ const startServer = async () => {
     const connected = await testConnection();
     
     if (connected) {
-      if (process.env.NODE_ENV === 'development') {
-        console.log('Syncing database models...');
-      }
-      
       app.listen(PORT, async () => {
-        console.log(`SmartBudget API server running on port ${PORT}`);
-        console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
-        console.log(`Health check: http://localhost:${PORT}/api/health`);
-        console.log(`Test DB: http://localhost:${PORT}/api/test/db`);
-        console.log(`Test Categories: http://localhost:${PORT}/api/test/categories/news`);
+        if (process.env.NODE_ENV === 'development') {
+          console.log(`Server started on port ${PORT}`);
+          console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+        }
         
         if (process.env.ENABLE_NEWS_FETCHER !== 'false') {
           await initializeScheduler();
@@ -76,11 +73,15 @@ const startServer = async () => {
         }
       });
     } else {
-      console.error('Failed to connect to database. Server not started.');
+      if (process.env.NODE_ENV === 'development') {
+        console.error('Database connection failed');
+      }
       process.exit(1);
     }
   } catch (error) {
-    console.error('Failed to start server:', error);
+    if (process.env.NODE_ENV === 'development') {
+      console.error('Server startup failed:', error.message);
+    }
     process.exit(1);
   }
 };

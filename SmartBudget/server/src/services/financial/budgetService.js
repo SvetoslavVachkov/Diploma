@@ -250,7 +250,9 @@ const updateBudgetSpentAmount = async (budgetId) => {
       spent_amount: spent || 0.00
     });
   } catch (error) {
-    console.error('Error updating budget spent amount:', error.message);
+    if (process.env.NODE_ENV === 'development') {
+      console.error('Budget update error:', error.message);
+    }
   }
 };
 

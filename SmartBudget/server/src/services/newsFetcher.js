@@ -146,7 +146,9 @@ const fetchArticlesFromSource = async (sourceId) => {
         duration_ms: duration
       });
     } catch (logError) {
-      console.error('Failed to create fetch log:', logError.message);
+      if (process.env.NODE_ENV === 'development') {
+        console.error('Failed to create fetch log:', logError.message);
+      }
     }
 
     return {

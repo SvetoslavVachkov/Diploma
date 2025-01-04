@@ -51,7 +51,9 @@ const fetchNewsAPI = async (apiKey, sourceName, options = {}) => {
 
     return { success: true, articles, error: null };
   } catch (error) {
-    console.error(`News API fetch error for ${sourceName}:`, error.message);
+    if (process.env.NODE_ENV === 'development') {
+      console.error(`News API fetch error for ${sourceName}:`, error.message);
+    }
     
     if (error.response) {
       return { 
