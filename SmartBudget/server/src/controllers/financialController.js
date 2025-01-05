@@ -33,12 +33,12 @@ const getCategories = async (req, res) => {
 
 const createTransactionHandler = async (req, res) => {
   try {
-    const userId = req.user?.id || req.body.user_id;
+    const userId = req.user?.id;
     
     if (!userId) {
-      return res.status(400).json({
+      return res.status(401).json({
         status: 'error',
-        message: 'User ID is required'
+        message: 'Authentication required'
       });
     }
 
@@ -67,13 +67,13 @@ const createTransactionHandler = async (req, res) => {
 
 const updateTransactionHandler = async (req, res) => {
   try {
-    const userId = req.user?.id || req.body.user_id;
+    const userId = req.user?.id;
     const transactionId = req.params.id;
 
     if (!userId) {
-      return res.status(400).json({
+      return res.status(401).json({
         status: 'error',
-        message: 'User ID is required'
+        message: 'Authentication required'
       });
     }
 
@@ -102,13 +102,13 @@ const updateTransactionHandler = async (req, res) => {
 
 const deleteTransactionHandler = async (req, res) => {
   try {
-    const userId = req.user?.id || req.body.user_id;
+    const userId = req.user?.id;
     const transactionId = req.params.id;
 
     if (!userId) {
-      return res.status(400).json({
+      return res.status(401).json({
         status: 'error',
-        message: 'User ID is required'
+        message: 'Authentication required'
       });
     }
 
@@ -137,12 +137,12 @@ const deleteTransactionHandler = async (req, res) => {
 
 const getTransactionsHandler = async (req, res) => {
   try {
-    const userId = req.user?.id || req.query.user_id;
+    const userId = req.user?.id;
     
     if (!userId) {
-      return res.status(400).json({
+      return res.status(401).json({
         status: 'error',
-        message: 'User ID is required'
+        message: 'Authentication required'
       });
     }
 
@@ -166,8 +166,10 @@ const getTransactionsHandler = async (req, res) => {
     if (result.success) {
       res.status(200).json({
         status: 'success',
-        data: result.transactions,
-        pagination: result.pagination
+        data: {
+          transactions: result.transactions,
+          pagination: result.pagination
+        }
       });
     } else {
       res.status(400).json({
@@ -186,13 +188,13 @@ const getTransactionsHandler = async (req, res) => {
 
 const getTransactionByIdHandler = async (req, res) => {
   try {
-    const userId = req.user?.id || req.query.user_id;
+    const userId = req.user?.id;
     const transactionId = req.params.id;
 
     if (!userId) {
-      return res.status(400).json({
+      return res.status(401).json({
         status: 'error',
-        message: 'User ID is required'
+        message: 'Authentication required'
       });
     }
 
@@ -220,12 +222,12 @@ const getTransactionByIdHandler = async (req, res) => {
 
 const getTransactionSummaryHandler = async (req, res) => {
   try {
-    const userId = req.user?.id || req.query.user_id;
+    const userId = req.user?.id;
     
     if (!userId) {
-      return res.status(400).json({
+      return res.status(401).json({
         status: 'error',
-        message: 'User ID is required'
+        message: 'Authentication required'
       });
     }
 
@@ -257,12 +259,12 @@ const getTransactionSummaryHandler = async (req, res) => {
 
 const createBudgetHandler = async (req, res) => {
   try {
-    const userId = req.user?.id || req.body.user_id;
+    const userId = req.user?.id;
     
     if (!userId) {
-      return res.status(400).json({
+      return res.status(401).json({
         status: 'error',
-        message: 'User ID is required'
+        message: 'Authentication required'
       });
     }
 
@@ -290,13 +292,13 @@ const createBudgetHandler = async (req, res) => {
 
 const updateBudgetHandler = async (req, res) => {
   try {
-    const userId = req.user?.id || req.body.user_id;
+    const userId = req.user?.id;
     const budgetId = req.params.id;
 
     if (!userId) {
-      return res.status(400).json({
+      return res.status(401).json({
         status: 'error',
-        message: 'User ID is required'
+        message: 'Authentication required'
       });
     }
 
@@ -324,13 +326,13 @@ const updateBudgetHandler = async (req, res) => {
 
 const deleteBudgetHandler = async (req, res) => {
   try {
-    const userId = req.user?.id || req.body.user_id;
+    const userId = req.user?.id;
     const budgetId = req.params.id;
 
     if (!userId) {
-      return res.status(400).json({
+      return res.status(401).json({
         status: 'error',
-        message: 'User ID is required'
+        message: 'Authentication required'
       });
     }
 
@@ -358,12 +360,12 @@ const deleteBudgetHandler = async (req, res) => {
 
 const getBudgetsHandler = async (req, res) => {
   try {
-    const userId = req.user?.id || req.query.user_id;
+    const userId = req.user?.id;
     
     if (!userId) {
-      return res.status(400).json({
+      return res.status(401).json({
         status: 'error',
-        message: 'User ID is required'
+        message: 'Authentication required'
       });
     }
 
@@ -397,13 +399,13 @@ const getBudgetsHandler = async (req, res) => {
 
 const getBudgetByIdHandler = async (req, res) => {
   try {
-    const userId = req.user?.id || req.query.user_id;
+    const userId = req.user?.id;
     const budgetId = req.params.id;
 
     if (!userId) {
-      return res.status(400).json({
+      return res.status(401).json({
         status: 'error',
-        message: 'User ID is required'
+        message: 'Authentication required'
       });
     }
 
@@ -431,12 +433,12 @@ const getBudgetByIdHandler = async (req, res) => {
 
 const getMonthlyReportHandler = async (req, res) => {
   try {
-    const userId = req.user?.id || req.query.user_id;
+    const userId = req.user?.id;
     
     if (!userId) {
-      return res.status(400).json({
+      return res.status(401).json({
         status: 'error',
-        message: 'User ID is required'
+        message: 'Authentication required'
       });
     }
 
@@ -467,12 +469,12 @@ const getMonthlyReportHandler = async (req, res) => {
 
 const getYearlyReportHandler = async (req, res) => {
   try {
-    const userId = req.user?.id || req.query.user_id;
+    const userId = req.user?.id;
     
     if (!userId) {
-      return res.status(400).json({
+      return res.status(401).json({
         status: 'error',
-        message: 'User ID is required'
+        message: 'Authentication required'
       });
     }
 
@@ -502,12 +504,12 @@ const getYearlyReportHandler = async (req, res) => {
 
 const getCategoryBreakdownHandler = async (req, res) => {
   try {
-    const userId = req.user?.id || req.query.user_id;
+    const userId = req.user?.id;
     
     if (!userId) {
-      return res.status(400).json({
+      return res.status(401).json({
         status: 'error',
-        message: 'User ID is required'
+        message: 'Authentication required'
       });
     }
 
@@ -540,12 +542,12 @@ const getCategoryBreakdownHandler = async (req, res) => {
 
 const getTrendsHandler = async (req, res) => {
   try {
-    const userId = req.user?.id || req.query.user_id;
+    const userId = req.user?.id;
     
     if (!userId) {
-      return res.status(400).json({
+      return res.status(401).json({
         status: 'error',
-        message: 'User ID is required'
+        message: 'Authentication required'
       });
     }
 
@@ -576,12 +578,12 @@ const getTrendsHandler = async (req, res) => {
 
 const createGoalHandler = async (req, res) => {
   try {
-    const userId = req.user?.id || req.body.user_id;
+    const userId = req.user?.id;
     
     if (!userId) {
-      return res.status(400).json({
+      return res.status(401).json({
         status: 'error',
-        message: 'User ID is required'
+        message: 'Authentication required'
       });
     }
 
@@ -609,13 +611,13 @@ const createGoalHandler = async (req, res) => {
 
 const updateGoalHandler = async (req, res) => {
   try {
-    const userId = req.user?.id || req.body.user_id;
+    const userId = req.user?.id;
     const goalId = req.params.id;
 
     if (!userId) {
-      return res.status(400).json({
+      return res.status(401).json({
         status: 'error',
-        message: 'User ID is required'
+        message: 'Authentication required'
       });
     }
 
@@ -643,13 +645,13 @@ const updateGoalHandler = async (req, res) => {
 
 const deleteGoalHandler = async (req, res) => {
   try {
-    const userId = req.user?.id || req.body.user_id;
+    const userId = req.user?.id;
     const goalId = req.params.id;
 
     if (!userId) {
-      return res.status(400).json({
+      return res.status(401).json({
         status: 'error',
-        message: 'User ID is required'
+        message: 'Authentication required'
       });
     }
 
@@ -677,12 +679,12 @@ const deleteGoalHandler = async (req, res) => {
 
 const getGoalsHandler = async (req, res) => {
   try {
-    const userId = req.user?.id || req.query.user_id;
+    const userId = req.user?.id;
     
     if (!userId) {
-      return res.status(400).json({
+      return res.status(401).json({
         status: 'error',
-        message: 'User ID is required'
+        message: 'Authentication required'
       });
     }
 
@@ -715,13 +717,13 @@ const getGoalsHandler = async (req, res) => {
 
 const getGoalByIdHandler = async (req, res) => {
   try {
-    const userId = req.user?.id || req.query.user_id;
+    const userId = req.user?.id;
     const goalId = req.params.id;
 
     if (!userId) {
-      return res.status(400).json({
+      return res.status(401).json({
         status: 'error',
-        message: 'User ID is required'
+        message: 'Authentication required'
       });
     }
 
@@ -749,19 +751,19 @@ const getGoalByIdHandler = async (req, res) => {
 
 const addToGoalHandler = async (req, res) => {
   try {
-    const userId = req.user?.id || req.body.user_id;
+    const userId = req.user?.id;
     const goalId = req.params.id;
     const { amount } = req.body;
 
     if (!userId) {
-      return res.status(400).json({
+      return res.status(401).json({
         status: 'error',
-        message: 'User ID is required'
+        message: 'Authentication required'
       });
     }
 
     if (!amount || parseFloat(amount) <= 0) {
-      return res.status(400).json({
+      return res.status(401).json({
         status: 'error',
         message: 'Valid amount is required'
       });
@@ -791,12 +793,12 @@ const addToGoalHandler = async (req, res) => {
 
 const getGoalsSummaryHandler = async (req, res) => {
   try {
-    const userId = req.user?.id || req.query.user_id;
+    const userId = req.user?.id;
     
     if (!userId) {
-      return res.status(400).json({
+      return res.status(401).json({
         status: 'error',
-        message: 'User ID is required'
+        message: 'Authentication required'
       });
     }
 
