@@ -206,7 +206,7 @@ CREATE TABLE financial_goals (
 
 CREATE TABLE system_config (
     id VARCHAR(36) PRIMARY KEY DEFAULT (UUID()),
-    key VARCHAR(100) NOT NULL UNIQUE,
+    `key` VARCHAR(100) NOT NULL UNIQUE,
     value JSON NOT NULL,
     description TEXT,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
@@ -260,7 +260,7 @@ INSERT INTO news_sources (name, url, rss_url, description, language, country, ca
 ('24 Часа', 'https://www.24chasa.bg', 'https://www.24chasa.bg/rss', 'Български вестник', 'bg', 'BG', 'news', TRUE),
 ('Нова ТВ', 'https://nova.bg', 'https://nova.bg/rss', 'Българска телевизия', 'bg', 'BG', 'news', TRUE);
 
-INSERT INTO system_config (key, value, description) VALUES
+INSERT INTO system_config (`key`, value, description) VALUES
 ('ai_model_config', '{"default_model": "huggingface/distilbert-base-uncased", "sentiment_model": "cardiffnlp/twitter-roberta-base-sentiment-latest", "max_tokens": 512}', 'AI model configuration'),
 ('news_fetch_interval', '{"default_minutes": 60, "priority_sources_minutes": 30}', 'News fetching intervals'),
 ('cache_settings', '{"ai_results_hours": 24, "popular_articles_hours": 6}', 'Cache expiration settings'),
