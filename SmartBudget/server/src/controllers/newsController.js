@@ -1,0 +1,230 @@
+const { NewsSource, NewsArticle, FetchLog } = require('../models');
+const { fetchArticlesFromSource, fetchAllActiveSources } = require('../services/newsFetcher');
+const { Op } = require('sequelize');
+
+const getArticles = async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const offset = (page - 1) * limit;
+
+    const where = {};
+
+    if (req.query.source_id) {
+      where.source_id = req.query.source_id;
+    }
+
+    if (req.query.is_processed !== undefined) {
+      where.is_processed = req.query.is_processed === 'true';
+    }
+
+    if (req.query.search) {
+      where[Op.or] = [
+        { title: { [Op.like]: `%${req.query.search}%` } },
+        { excerpt: { [Op.like]: `%${req.query.search}%` } }
+      ];
+    }
+
+    const { count, rows } = await NewsArticle.findAndCountAll({
+      where,
+      include: [{
+        model: NewsSource,
+        as: 'source',
+        attributes: ['id', 'name', 'logo_url']
+      }],
+      order: [['published_at', 'DESC']],
+      limit,
+      offset
+    });
+
+    res.status(200).json({
+      status: 'success',
+      data: rows,
+      pagination: {
+        page,
+        limit,
+        total: count,
+        pages: Math.ceil(count / limit)
+      }
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to fetch articles',
+      error: error.message
+    });
+  }
+};
+
+const getArticleById = async (req, res) => {
+  try {
+    const article = await NewsArticle.findByPk(req.params.id, {
+      include: [{
+        model: NewsSource,
+        as: 'source',
+        attributes: ['id', 'name', 'logo_url', 'url']
+      }]
+    });
+
+    if (!article) {
+      return res.status(404).json({
+        status: 'error',
+        message: 'Article not found'
+      });
+    }
+
+    await article.increment('view_count');
+
+    res.status(200).json({
+      status: 'success',
+      data: article
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to fetch article',
+      error: error.message
+    });
+  }
+};
+
+const getSources = async (req, res) => {
+  try {
+    const sources = await NewsSource.findAll({
+      where: req.query.active_only === 'true' ? { is_active: true } : {},
+      order: [['name', 'ASC']],
+      include: [{
+        model: NewsArticle,
+        as: 'articles',
+        attributes: ['id'],
+        separate: true
+      }]
+    });
+
+    const sourcesWithCounts = sources.map(source => ({
+      ...source.toJSON(),
+      article_count: source.articles ? source.articles.length : 0
+    }));
+
+    res.status(200).json({
+      status: 'success',
+      count: sourcesWithCounts.length,
+      data: sourcesWithCounts
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to fetch sources',
+      error: error.message
+    });
+  }
+};
+
+const fetchSource = async (req, res) => {
+  try {
+    const sourceId = req.params.id;
+    const result = await fetchArticlesFromSource(sourceId);
+
+    res.status(result.success ? 200 : 500).json({
+      status: result.success ? 'success' : 'error',
+      message: result.message,
+      articlesFetched: result.articlesFetched,
+      duration: result.duration
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to fetch articles',
+      error: error.message
+    });
+  }
+};
+
+const fetchAllSources = async (req, res) => {
+  try {
+    const results = await fetchAllActiveSources();
+
+    const totalArticles = results.reduce((sum, r) => sum + r.articlesFetched, 0);
+    const successCount = results.filter(r => r.success).length;
+
+    res.status(200).json({
+      status: 'success',
+      message: `Fetched ${totalArticles} articles from ${successCount}/${results.length} sources`,
+      results,
+      summary: {
+        totalSources: results.length,
+        successful: successCount,
+        totalArticlesFetched: totalArticles
+      }
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to fetch from all sources',
+      error: error.message
+    });
+  }
+};
+
+const getFetchLogs = async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 50;
+    const offset = (page - 1) * limit;
+
+    const where = {};
+
+    if (req.query.source_id) {
+      where.source_id = req.query.source_id;
+    }
+
+    if (req.query.status) {
+      where.status = req.query.status;
+    }
+
+    if (req.query.from_date) {
+      where.fetched_at = {
+        [Op.gte]: new Date(req.query.from_date)
+      };
+    }
+
+    const { count, rows } = await FetchLog.findAndCountAll({
+      where,
+      include: [{
+        model: NewsSource,
+        as: 'source',
+        attributes: ['id', 'name']
+      }],
+      order: [['fetched_at', 'DESC']],
+      limit,
+      offset
+    });
+
+    res.status(200).json({
+      status: 'success',
+      data: rows,
+      pagination: {
+        page,
+        limit,
+        total: count,
+        pages: Math.ceil(count / limit)
+      }
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to fetch logs',
+      error: error.message
+    });
+  }
+};
+
+module.exports = {
+  getArticles,
+  getArticleById,
+  getSources,
+  fetchSource,
+  fetchAllSources,
+  getFetchLogs
+};
+
