@@ -6,6 +6,7 @@ require('dotenv').config();
 const { testConnection } = require('./config/database');
 const { sequelize } = require('./models');
 const { initializeScheduler } = require('./jobs/newsFetchScheduler');
+const { initializeAIProcessingScheduler } = require('./jobs/aiProcessingScheduler');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -26,6 +27,7 @@ app.get('/api/health', (req, res) => {
 
 app.use('/api/test', require('./routes/test'));
 app.use('/api/news', require('./routes/news'));
+app.use('/api/ai', require('./routes/ai'));
 
 app.use((req, res) => {
   res.status(404).json({
@@ -63,6 +65,10 @@ const startServer = async () => {
         
         if (process.env.ENABLE_NEWS_FETCHER !== 'false') {
           await initializeScheduler();
+        }
+        
+        if (process.env.ENABLE_AI_PROCESSING !== 'false') {
+          initializeAIProcessingScheduler();
         }
       });
     } else {
