@@ -5,6 +5,7 @@ require('dotenv').config();
 
 const { testConnection } = require('./config/database');
 const { sequelize } = require('./models');
+const { initializeScheduler } = require('./jobs/newsFetchScheduler');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -24,8 +25,9 @@ app.get('/api/health', (req, res) => {
 });
 
 app.use('/api/test', require('./routes/test'));
+app.use('/api/news', require('./routes/news'));
 
-app.use('*', (req, res) => {
+app.use((req, res) => {
   res.status(404).json({
     status: 'error',
     message: 'Route not found',
@@ -52,12 +54,16 @@ const startServer = async () => {
         console.log('Syncing database models...');
       }
       
-      app.listen(PORT, () => {
+      app.listen(PORT, async () => {
         console.log(`SmartBudget API server running on port ${PORT}`);
         console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
         console.log(`Health check: http://localhost:${PORT}/api/health`);
         console.log(`Test DB: http://localhost:${PORT}/api/test/db`);
         console.log(`Test Categories: http://localhost:${PORT}/api/test/categories/news`);
+        
+        if (process.env.ENABLE_NEWS_FETCHER !== 'false') {
+          await initializeScheduler();
+        }
       });
     } else {
       console.error('Failed to connect to database. Server not started.');
