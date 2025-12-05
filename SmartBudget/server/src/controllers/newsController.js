@@ -1,4 +1,4 @@
-const { NewsSource, NewsArticle, FetchLog } = require('../models');
+const { NewsSource, NewsArticle, FetchLog, AIAnalysis } = require('../models');
 const { fetchArticlesFromSource, fetchAllActiveSources } = require('../services/newsFetcher');
 const { Op } = require('sequelize');
 
@@ -75,9 +75,21 @@ const getArticleById = async (req, res) => {
 
     await article.increment('view_count');
 
+    const analyses = await AIAnalysis.findAll({
+      where: { article_id: article.id },
+      order: [['created_at', 'DESC']]
+    });
+
+    const articleData = article.toJSON();
+    articleData.ai_analyses = {
+      classification: analyses.find(a => a.analysis_type === 'classification'),
+      sentiment: analyses.find(a => a.analysis_type === 'sentiment'),
+      summary: analyses.find(a => a.analysis_type === 'summary')
+    };
+
     res.status(200).json({
       status: 'success',
-      data: article
+      data: articleData
     });
   } catch (error) {
     res.status(500).json({
