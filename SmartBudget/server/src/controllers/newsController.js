@@ -4,48 +4,38 @@ const { Op } = require('sequelize');
 
 const getArticles = async (req, res) => {
   try {
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 20;
-    const offset = (page - 1) * limit;
+    const { searchArticles } = require('../services/searchService');
+    
+    const filters = {
+      keyword: req.query.search || req.query.keyword,
+      source_id: req.query.source_id,
+      category_id: req.query.category_id,
+      sentiment: req.query.sentiment,
+      date_from: req.query.date_from,
+      date_to: req.query.date_to,
+      language: req.query.language,
+      is_processed: req.query.is_processed
+    };
 
-    const where = {};
-
-    if (req.query.source_id) {
-      where.source_id = req.query.source_id;
-    }
-
-    if (req.query.is_processed !== undefined) {
-      where.is_processed = req.query.is_processed === 'true';
-    }
-
-    if (req.query.search) {
-      where[Op.or] = [
-        { title: { [Op.like]: `%${req.query.search}%` } },
-        { excerpt: { [Op.like]: `%${req.query.search}%` } }
-      ];
-    }
-
-    const { count, rows } = await NewsArticle.findAndCountAll({
-      where,
-      include: [{
-        model: NewsSource,
-        as: 'source',
-        attributes: ['id', 'name', 'logo_url']
-      }],
-      order: [['published_at', 'DESC']],
-      limit,
-      offset
+    Object.keys(filters).forEach(key => {
+      if (filters[key] === undefined || filters[key] === '') {
+        delete filters[key];
+      }
     });
+
+    const pagination = {
+      page: req.query.page,
+      limit: req.query.limit,
+      sortBy: req.query.sort_by || 'published_at',
+      sortOrder: req.query.sort_order || 'DESC'
+    };
+
+    const result = await searchArticles(filters, pagination);
 
     res.status(200).json({
       status: 'success',
-      data: rows,
-      pagination: {
-        page,
-        limit,
-        total: count,
-        pages: Math.ceil(count / limit)
-      }
+      data: result.articles,
+      pagination: result.pagination
     });
   } catch (error) {
     res.status(500).json({
