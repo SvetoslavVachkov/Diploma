@@ -28,6 +28,7 @@ app.get('/api/health', (req, res) => {
 app.use('/api/test', require('./routes/test'));
 app.use('/api/news', require('./routes/news'));
 app.use('/api/ai', require('./routes/ai'));
+app.use('/api/search', require('./routes/search'));
 
 app.use((req, res) => {
   res.status(404).json({
