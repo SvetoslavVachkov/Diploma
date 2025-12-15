@@ -17,7 +17,14 @@ const {
   getMonthlyReportHandler,
   getYearlyReportHandler,
   getCategoryBreakdownHandler,
-  getTrendsHandler
+  getTrendsHandler,
+  createGoalHandler,
+  updateGoalHandler,
+  deleteGoalHandler,
+  getGoalsHandler,
+  getGoalByIdHandler,
+  addToGoalHandler,
+  getGoalsSummaryHandler
 } = require('../controllers/financialController');
 const {
   importCSVHandler,
@@ -47,6 +54,14 @@ router.get('/reports/yearly', authenticateToken, getYearlyReportHandler);
 router.get('/reports/category-breakdown', authenticateToken, getCategoryBreakdownHandler);
 router.get('/reports/trends', authenticateToken, getTrendsHandler);
 router.get('/reports/spending', authenticateToken, getSpendingReportHandler);
+
+router.post('/goals', authenticateToken, createGoalHandler);
+router.get('/goals', authenticateToken, getGoalsHandler);
+router.get('/goals/summary', authenticateToken, getGoalsSummaryHandler);
+router.get('/goals/:id', authenticateToken, getGoalByIdHandler);
+router.put('/goals/:id', authenticateToken, updateGoalHandler);
+router.post('/goals/:id/add', authenticateToken, addToGoalHandler);
+router.delete('/goals/:id', authenticateToken, deleteGoalHandler);
 
 module.exports = router;
 
