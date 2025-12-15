@@ -9,6 +9,7 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "test:news": "node server/src/scripts/testNewsFetcher.js",
     "test:ai": "node server/src/scripts/testAIProcessing.js",
+    "test:complete": "node server/src/scripts/testCompleteSystem.js",
     "db:setup": "node server/src/scripts/setupDatabase.js"
   },
   "keywords": [],

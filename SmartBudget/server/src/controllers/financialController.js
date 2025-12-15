@@ -2,6 +2,7 @@ const { FinancialCategory } = require('../models');
 const { createTransaction, updateTransaction, deleteTransaction, getTransactions, getTransactionById, getTransactionSummary } = require('../services/financial/transactionService');
 const { createBudget, updateBudget, deleteBudget, getBudgets, getBudgetById, updateAllBudgetsSpentAmount } = require('../services/financial/budgetService');
 const { getMonthlyReport, getYearlyReport, getCategoryBreakdown, getTrends } = require('../services/financial/analyticsService');
+const { createGoal, updateGoal, deleteGoal, getGoals, getGoalById, addToGoal, getGoalsSummary } = require('../services/financial/goalService');
 
 const getCategories = async (req, res) => {
   try {
@@ -573,6 +574,254 @@ const getTrendsHandler = async (req, res) => {
   }
 };
 
+const createGoalHandler = async (req, res) => {
+  try {
+    const userId = req.user?.id || req.body.user_id;
+    
+    if (!userId) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'User ID is required'
+      });
+    }
+
+    const result = await createGoal(userId, req.body);
+
+    if (result.success) {
+      res.status(201).json({
+        status: 'success',
+        data: result.goal
+      });
+    } else {
+      res.status(400).json({
+        status: 'error',
+        message: result.error
+      });
+    }
+  } catch (error) {
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to create goal',
+      error: error.message
+    });
+  }
+};
+
+const updateGoalHandler = async (req, res) => {
+  try {
+    const userId = req.user?.id || req.body.user_id;
+    const goalId = req.params.id;
+
+    if (!userId) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'User ID is required'
+      });
+    }
+
+    const result = await updateGoal(goalId, userId, req.body);
+
+    if (result.success) {
+      res.status(200).json({
+        status: 'success',
+        data: result.goal
+      });
+    } else {
+      res.status(400).json({
+        status: 'error',
+        message: result.error
+      });
+    }
+  } catch (error) {
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to update goal',
+      error: error.message
+    });
+  }
+};
+
+const deleteGoalHandler = async (req, res) => {
+  try {
+    const userId = req.user?.id || req.body.user_id;
+    const goalId = req.params.id;
+
+    if (!userId) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'User ID is required'
+      });
+    }
+
+    const result = await deleteGoal(goalId, userId);
+
+    if (result.success) {
+      res.status(200).json({
+        status: 'success',
+        message: result.message
+      });
+    } else {
+      res.status(400).json({
+        status: 'error',
+        message: result.error
+      });
+    }
+  } catch (error) {
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to delete goal',
+      error: error.message
+    });
+  }
+};
+
+const getGoalsHandler = async (req, res) => {
+  try {
+    const userId = req.user?.id || req.query.user_id;
+    
+    if (!userId) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'User ID is required'
+      });
+    }
+
+    const filters = {
+      is_achieved: req.query.is_achieved,
+      goal_type: req.query.goal_type
+    };
+
+    const result = await getGoals(userId, filters);
+
+    if (result.success) {
+      res.status(200).json({
+        status: 'success',
+        data: result.goals
+      });
+    } else {
+      res.status(400).json({
+        status: 'error',
+        message: result.error
+      });
+    }
+  } catch (error) {
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to fetch goals',
+      error: error.message
+    });
+  }
+};
+
+const getGoalByIdHandler = async (req, res) => {
+  try {
+    const userId = req.user?.id || req.query.user_id;
+    const goalId = req.params.id;
+
+    if (!userId) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'User ID is required'
+      });
+    }
+
+    const result = await getGoalById(goalId, userId);
+
+    if (result.success) {
+      res.status(200).json({
+        status: 'success',
+        data: result.goal
+      });
+    } else {
+      res.status(404).json({
+        status: 'error',
+        message: result.error
+      });
+    }
+  } catch (error) {
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to fetch goal',
+      error: error.message
+    });
+  }
+};
+
+const addToGoalHandler = async (req, res) => {
+  try {
+    const userId = req.user?.id || req.body.user_id;
+    const goalId = req.params.id;
+    const { amount } = req.body;
+
+    if (!userId) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'User ID is required'
+      });
+    }
+
+    if (!amount || parseFloat(amount) <= 0) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'Valid amount is required'
+      });
+    }
+
+    const result = await addToGoal(goalId, userId, amount);
+
+    if (result.success) {
+      res.status(200).json({
+        status: 'success',
+        data: result.goal
+      });
+    } else {
+      res.status(400).json({
+        status: 'error',
+        message: result.error
+      });
+    }
+  } catch (error) {
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to add to goal',
+      error: error.message
+    });
+  }
+};
+
+const getGoalsSummaryHandler = async (req, res) => {
+  try {
+    const userId = req.user?.id || req.query.user_id;
+    
+    if (!userId) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'User ID is required'
+      });
+    }
+
+    const result = await getGoalsSummary(userId);
+
+    if (result.success) {
+      res.status(200).json({
+        status: 'success',
+        data: result.summary
+      });
+    } else {
+      res.status(400).json({
+        status: 'error',
+        message: result.error
+      });
+    }
+  } catch (error) {
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to get goals summary',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   getCategories,
   createTransactionHandler,
@@ -589,6 +838,13 @@ module.exports = {
   getMonthlyReportHandler,
   getYearlyReportHandler,
   getCategoryBreakdownHandler,
-  getTrendsHandler
+  getTrendsHandler,
+  createGoalHandler,
+  updateGoalHandler,
+  deleteGoalHandler,
+  getGoalsHandler,
+  getGoalByIdHandler,
+  addToGoalHandler,
+  getGoalsSummaryHandler
 };
 
