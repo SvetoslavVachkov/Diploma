@@ -70,7 +70,9 @@ const generateSpendingReport = async (userId, dateFrom, dateTo) => {
 
     const dailySpending = {};
     transactions.forEach(t => {
-      const date = t.transaction_date.toISOString().substring(0, 10);
+      const date = t.transaction_date instanceof Date 
+        ? t.transaction_date.toISOString().substring(0, 10)
+        : String(t.transaction_date).substring(0, 10);
       if (!dailySpending[date]) {
         dailySpending[date] = 0;
       }
@@ -80,9 +82,17 @@ const generateSpendingReport = async (userId, dateFrom, dateTo) => {
     const highestSpendingDay = Object.entries(dailySpending)
       .sort((a, b) => b[1] - a[1])[0];
 
-    const largestTransaction = transactions
-      .map(t => ({ amount: parseFloat(t.amount), description: t.description, date: t.transaction_date }))
-      .sort((a, b) => b.amount - a.amount)[0];
+    const largestTransaction = transactions.length > 0
+      ? transactions
+          .map(t => ({ 
+            amount: parseFloat(t.amount), 
+            description: t.description, 
+            date: t.transaction_date instanceof Date 
+              ? t.transaction_date.toISOString().substring(0, 10)
+              : String(t.transaction_date).substring(0, 10)
+          }))
+          .sort((a, b) => b.amount - a.amount)[0]
+      : null;
 
     return {
       success: true,
