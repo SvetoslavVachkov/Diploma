@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const { authenticateToken } = require('../middleware/auth');
 const {
   getCategories,
   createTransactionHandler,
@@ -18,26 +19,34 @@ const {
   getCategoryBreakdownHandler,
   getTrendsHandler
 } = require('../controllers/financialController');
+const {
+  importCSVHandler,
+  getSpendingReportHandler,
+  uploadCSV
+} = require('../controllers/csvImportController');
 
 router.get('/categories', getCategories);
 
-router.post('/transactions', createTransactionHandler);
-router.get('/transactions', getTransactionsHandler);
-router.get('/transactions/summary', getTransactionSummaryHandler);
-router.get('/transactions/:id', getTransactionByIdHandler);
-router.put('/transactions/:id', updateTransactionHandler);
-router.delete('/transactions/:id', deleteTransactionHandler);
+router.post('/transactions', authenticateToken, createTransactionHandler);
+router.get('/transactions', authenticateToken, getTransactionsHandler);
+router.get('/transactions/summary', authenticateToken, getTransactionSummaryHandler);
+router.get('/transactions/:id', authenticateToken, getTransactionByIdHandler);
+router.put('/transactions/:id', authenticateToken, updateTransactionHandler);
+router.delete('/transactions/:id', authenticateToken, deleteTransactionHandler);
 
-router.post('/budgets', createBudgetHandler);
-router.get('/budgets', getBudgetsHandler);
-router.get('/budgets/:id', getBudgetByIdHandler);
-router.put('/budgets/:id', updateBudgetHandler);
-router.delete('/budgets/:id', deleteBudgetHandler);
+router.post('/transactions/import-csv', authenticateToken, uploadCSV, importCSVHandler);
 
-router.get('/reports/monthly', getMonthlyReportHandler);
-router.get('/reports/yearly', getYearlyReportHandler);
-router.get('/reports/category-breakdown', getCategoryBreakdownHandler);
-router.get('/reports/trends', getTrendsHandler);
+router.post('/budgets', authenticateToken, createBudgetHandler);
+router.get('/budgets', authenticateToken, getBudgetsHandler);
+router.get('/budgets/:id', authenticateToken, getBudgetByIdHandler);
+router.put('/budgets/:id', authenticateToken, updateBudgetHandler);
+router.delete('/budgets/:id', authenticateToken, deleteBudgetHandler);
+
+router.get('/reports/monthly', authenticateToken, getMonthlyReportHandler);
+router.get('/reports/yearly', authenticateToken, getYearlyReportHandler);
+router.get('/reports/category-breakdown', authenticateToken, getCategoryBreakdownHandler);
+router.get('/reports/trends', authenticateToken, getTrendsHandler);
+router.get('/reports/spending', authenticateToken, getSpendingReportHandler);
 
 module.exports = router;
 
