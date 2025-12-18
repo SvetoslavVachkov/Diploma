@@ -41,42 +41,150 @@ const setCachedResult = async (cacheKey, result) => {
   }
 };
 
-const classifyWithHuggingFace = async (description, categories, apiKey, model) => {
+const extractMerchantName = (description) => {
+  const text = description.toLowerCase().trim();
+  const words = text.split(/\s+/);
+  
+  if (words.length === 0) return null;
+  
+  const amountPattern = /[\d.,]+/;
+  const cleanText = text.replace(amountPattern, '').trim();
+  const cleanWords = cleanText.split(/\s+/);
+  
+  const stopWords = ['в', 'на', 'от', 'до', 'за', 'с', 'при', 'at', 'in', 'on', 'for', 'with', 'from', 'to'];
+  const filteredWords = cleanWords.filter(word => !stopWords.includes(word));
+  
+  const merchantName = filteredWords.slice(0, 3).join(' ').trim() || filteredWords[0] || cleanWords[0];
+  
+  return { 
+    merchantName: merchantName,
+    fullText: text,
+    cleanText: cleanText
+  };
+};
+
+const classifyMerchantWithAI = async (merchantName, description, allCategories, apiKey, model) => {
+  if (!apiKey || !model || allCategories.length === 0) {
+    return null;
+  }
+
   try {
-    const categoryLabels = categories.map(c => c.name).join(', ');
-    const prompt = `Classify this transaction description into one of these categories: ${categoryLabels}. Description: ${description}`;
+    const prompt = `What type of business or category is "${merchantName}"? Transaction: ${description}. Categories: ${allCategories.map(c => c.name).join(', ')}.`;
     
+    const payload = {
+      inputs: prompt,
+      parameters: {
+        candidate_labels: allCategories.map(c => c.name),
+        multi_label: false
+      }
+    };
+
     const response = await axios.post(
       `https://api-inference.huggingface.co/models/${model}`,
-      { inputs: prompt },
+      payload,
       {
         headers: {
-          'Authorization': `Bearer ${apiKey}`,
+          Authorization: `Bearer ${apiKey}`,
           'Content-Type': 'application/json'
         },
-        timeout: 10000
+        timeout: 20000
       }
     );
 
-    if (response.data && Array.isArray(response.data) && response.data[0]) {
-      const result = response.data[0];
-      if (result.label && result.score > 0.5) {
-        const matchedCategory = categories.find(c => 
-          c.name.toLowerCase() === result.label.toLowerCase() ||
-          result.label.toLowerCase().includes(c.name.toLowerCase())
-        );
-        
-        if (matchedCategory) {
-          return {
-            categoryId: matchedCategory.id,
-            categoryName: matchedCategory.name,
-            type: matchedCategory.type,
-            confidence: result.score
-          };
-        }
-      }
+    if (!response.data || !response.data.labels || !response.data.scores) {
+      return null;
     }
+
+    const topLabel = response.data.labels[0];
+    const topScore = response.data.scores[0];
+
+    if (!topLabel || !topScore || topScore < 0.25) {
+      return null;
+    }
+
+    const matched = allCategories.find(c => 
+      c.name.toLowerCase() === topLabel.toLowerCase() ||
+      topLabel.toLowerCase().includes(c.name.toLowerCase()) ||
+      c.name.toLowerCase().includes(topLabel.toLowerCase())
+    );
+    
+    if (!matched) {
+      return null;
+    }
+
+    return {
+      categoryId: matched.id,
+      categoryName: matched.name,
+      type: matched.type,
+      confidence: topScore,
+      method: 'ai_merchant_recognition'
+    };
   } catch (error) {
+    if (error.response && error.response.status === 401) {
+      throw new Error('Invalid Hugging Face API key');
+    }
+  }
+  return null;
+};
+
+const classifyWithHuggingFace = async (text, categories, apiKey, model) => {
+  if (!apiKey || !model || categories.length === 0) {
+    return null;
+  }
+
+  try {
+    const payload = {
+      inputs: text,
+      parameters: {
+        candidate_labels: categories.map(c => c.name),
+        multi_label: false
+      }
+    };
+
+    const response = await axios.post(
+      `https://api-inference.huggingface.co/models/${model}`,
+      payload,
+      {
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json'
+        },
+        timeout: 15000
+      }
+    );
+
+    if (!response.data || !response.data.labels || !response.data.scores) {
+      return null;
+    }
+
+    const topLabel = response.data.labels[0];
+    const topScore = response.data.scores[0];
+
+    if (!topLabel || !topScore || topScore < 0.3) {
+      return null;
+    }
+
+    const matched = categories.find(c => 
+      c.name.toLowerCase() === topLabel.toLowerCase() ||
+      topLabel.toLowerCase().includes(c.name.toLowerCase()) ||
+      c.name.toLowerCase().includes(topLabel.toLowerCase())
+    );
+    
+    if (!matched) {
+      return null;
+    }
+
+    return {
+      categoryId: matched.id,
+      categoryName: matched.name,
+      type: matched.type,
+      confidence: topScore,
+      model: `huggingface-${model}`
+    };
+  } catch (error) {
+    if (error.response && error.response.status === 401) {
+      throw new Error('Invalid Hugging Face API key');
+    }
   }
   return null;
 };
@@ -154,20 +262,48 @@ const categorizeTransaction = async (description, amount, options = {}) => {
   }
 
   try {
-    const transactionType = determineTransactionType(amount, description);
-    const categories = await FinancialCategory.findAll({ where: { type: transactionType, is_active: true } });
+    const allCategories = await FinancialCategory.findAll({ where: { is_active: true } });
+    
+    if (allCategories.length === 0) {
+      return { success: false, error: 'No categories found in database' };
+    }
 
+    const extracted = extractMerchantName(description);
     const hfApiKey = options.hfApiKey || process.env.HF_TXN_API_KEY;
     const hfModel = options.hfModel || process.env.HF_TXN_MODEL || 'facebook/bart-large-mnli';
 
+    if (extracted && extracted.merchantName && hfApiKey) {
+      try {
+        const merchantResult = await classifyMerchantWithAI(
+          extracted.merchantName,
+          description,
+          allCategories.map(c => ({ id: c.id, name: c.name, type: c.type })),
+          hfApiKey,
+          hfModel
+        );
+
+        if (merchantResult && merchantResult.categoryId) {
+          await setCachedResult(cacheKey, merchantResult);
+          return { success: true, result: merchantResult, fromCache: false };
+        }
+      } catch (error) {
+      }
+    }
+
+    const transactionType = determineTransactionType(amount, description);
+    const typeCategories = allCategories.filter(c => c.type === transactionType);
+
     let mlResult = null;
-    if (hfApiKey) {
-      mlResult = await classifyWithHuggingFace(
-        description,
-        categories.map(c => ({ id: c.id, name: c.name, type: c.type })),
-        hfApiKey,
-        hfModel
-      );
+    if (hfApiKey && typeCategories.length > 0) {
+      try {
+        mlResult = await classifyWithHuggingFace(
+          description,
+          typeCategories.map(c => ({ id: c.id, name: c.name, type: c.type })),
+          hfApiKey,
+          hfModel
+        );
+      } catch (error) {
+      }
     }
 
     if (mlResult && mlResult.categoryId) {
