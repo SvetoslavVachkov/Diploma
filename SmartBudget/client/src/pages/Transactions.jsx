@@ -59,6 +59,27 @@ const Transactions = () => {
     }
   };
 
+  const handleCSVUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const formData = new FormData();
+    formData.append('csvFile', file);
+
+    try {
+      await api.post('/financial/transactions/import-csv', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data'
+        }
+      });
+      fetchData();
+      alert('CSV файлът е импортиран успешно!');
+    } catch (error) {
+      alert('Грешка при импортиране: ' + (error.response?.data?.message || 'Неизвестна грешка'));
+    }
+    e.target.value = '';
+  };
+
   if (loading) {
     return <div style={styles.loading}>Зареждане...</div>;
   }
@@ -212,7 +233,24 @@ const styles = {
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: '30px'
+    marginBottom: '30px',
+    flexWrap: 'wrap',
+    gap: '12px'
+  },
+  headerActions: {
+    display: 'flex',
+    gap: '12px'
+  },
+  uploadButton: {
+    padding: '12px 24px',
+    background: 'white',
+    color: '#667eea',
+    border: '2px solid #667eea',
+    borderRadius: '8px',
+    fontSize: '16px',
+    fontWeight: '600',
+    cursor: 'pointer',
+    display: 'inline-block'
   },
   title: {
     fontSize: '32px',
