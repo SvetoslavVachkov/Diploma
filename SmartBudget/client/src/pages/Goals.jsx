@@ -21,13 +21,17 @@ const Goals = () => {
 
   const fetchData = async () => {
     try {
+      setLoading(true);
       const [goalsRes, summaryRes] = await Promise.all([
         api.get('/financial/goals'),
         api.get('/financial/goals/summary')
       ]);
-      setGoals(goalsRes.data.data);
-      setSummary(summaryRes.data.data);
+      setGoals(goalsRes.data.data || []);
+      setSummary(summaryRes.data.data || null);
     } catch (error) {
+      console.error('Error fetching goals:', error);
+      setGoals([]);
+      setSummary(null);
     } finally {
       setLoading(false);
     }
@@ -48,6 +52,8 @@ const Goals = () => {
       });
       fetchData();
     } catch (error) {
+      console.error('Error creating goal:', error);
+      alert('Грешка при създаване на цел: ' + (error.response?.data?.message || 'Неизвестна грешка'));
     }
   };
 
@@ -56,6 +62,8 @@ const Goals = () => {
       await api.post(`/financial/goals/${goalId}/add`, { amount });
       fetchData();
     } catch (error) {
+      console.error('Error adding to goal:', error);
+      alert('Грешка при добавяне на сума: ' + (error.response?.data?.message || 'Неизвестна грешка'));
     }
   };
 
@@ -65,6 +73,8 @@ const Goals = () => {
         await api.delete(`/financial/goals/${id}`);
         fetchData();
       } catch (error) {
+        console.error('Error deleting goal:', error);
+        alert('Грешка при изтриване на цел: ' + (error.response?.data?.message || 'Неизвестна грешка'));
       }
     }
   };
