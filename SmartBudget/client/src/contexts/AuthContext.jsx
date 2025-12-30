@@ -16,7 +16,16 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const token = localStorage.getItem('token');
+    const getTokenFromCookie = () => {
+      const cookies = document.cookie.split(';');
+      for (let cookie of cookies) {
+        const [name, value] = cookie.trim().split('=');
+        if (name === 'token') return value;
+      }
+      return null;
+    };
+    
+    const token = localStorage.getItem('token') || getTokenFromCookie();
     if (token) {
       api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
       fetchUser();
@@ -37,11 +46,20 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const login = async (email, password) => {
+  const login = async (email, password, rememberMe = false) => {
     try {
-      const response = await api.post('/auth/login', { email, password });
+      const response = await api.post('/auth/login', { email, password, rememberMe });
       const { token, user } = response.data.data;
-      localStorage.setItem('token', token);
+      
+      if (rememberMe) {
+        const expiresAt = new Date();
+        expiresAt.setDate(expiresAt.getDate() + 30);
+        document.cookie = `token=${token}; expires=${expiresAt.toUTCString()}; path=/; SameSite=Lax`;
+        localStorage.setItem('token', token);
+      } else {
+        localStorage.setItem('token', token);
+      }
+      
       api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
       setUser(user);
       return { success: true };
@@ -76,6 +94,7 @@ export const AuthProvider = ({ children }) => {
     } catch (error) {
     } finally {
       localStorage.removeItem('token');
+      document.cookie = 'token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
       delete api.defaults.headers.common['Authorization'];
       setUser(null);
     }

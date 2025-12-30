@@ -12,6 +12,23 @@ const register = async (req, res) => {
       });
     }
 
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'Invalid email format'
+      });
+    }
+
+    const validDomains = ['gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com', 'abv.bg', 'mail.bg'];
+    const domain = email.split('@')[1]?.toLowerCase();
+    if (!validDomains.includes(domain)) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'Email domain not supported. Supported: gmail.com, yahoo.com, hotmail.com, outlook.com, abv.bg, mail.bg'
+      });
+    }
+
     if (password.length < 6) {
       return res.status(400).json({
         status: 'error',
@@ -52,7 +69,7 @@ const register = async (req, res) => {
 
 const login = async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { email, password, rememberMe } = req.body;
 
     if (!email || !password) {
       return res.status(400).json({
@@ -61,9 +78,18 @@ const login = async (req, res) => {
       });
     }
 
-    const result = await loginUser(email, password);
+    const result = await loginUser(email, password, rememberMe);
 
     if (result.success) {
+      const cookieOptions = {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: rememberMe ? 30 * 24 * 60 * 60 * 1000 : 7 * 24 * 60 * 60 * 1000
+      };
+      
+      res.cookie('token', result.token, cookieOptions);
+      
       res.status(200).json({
         status: 'success',
         data: {

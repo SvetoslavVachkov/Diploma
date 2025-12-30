@@ -7,6 +7,7 @@ const Login = () => {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [rememberMe, setRememberMe] = useState(false);
   const { login } = useAuth();
   const navigate = useNavigate();
 
@@ -15,7 +16,7 @@ const Login = () => {
     setError('');
     setLoading(true);
 
-    const result = await login(email, password);
+    const result = await login(email, password, rememberMe);
 
     if (result.success) {
       navigate('/');
@@ -24,6 +25,10 @@ const Login = () => {
     }
 
     setLoading(false);
+  };
+
+  const handleGoogleLogin = () => {
+    window.location.href = '/api/auth/google';
   };
 
   return (
@@ -49,8 +54,27 @@ const Login = () => {
             required
             style={styles.input}
           />
+          <div style={styles.checkboxContainer}>
+            <input
+              type="checkbox"
+              id="rememberMe"
+              checked={rememberMe}
+              onChange={(e) => setRememberMe(e.target.checked)}
+              style={styles.checkbox}
+            />
+            <label htmlFor="rememberMe" style={styles.checkboxLabel}>
+              Запомни ме
+            </label>
+          </div>
           <button type="submit" disabled={loading} style={styles.button}>
             {loading ? 'Влизане...' : 'Влез'}
+          </button>
+          <button
+            type="button"
+            onClick={handleGoogleLogin}
+            style={styles.googleButton}
+          >
+            Влез с Google
           </button>
         </form>
         <p style={styles.link}>
@@ -134,6 +158,36 @@ const styles = {
     color: '#667eea',
     textDecoration: 'none',
     fontWeight: '600'
+  },
+  checkboxContainer: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px'
+  },
+  checkbox: {
+    width: '18px',
+    height: '18px',
+    cursor: 'pointer'
+  },
+  checkboxLabel: {
+    fontSize: '14px',
+    color: '#666',
+    cursor: 'pointer'
+  },
+  googleButton: {
+    padding: '14px',
+    background: 'white',
+    color: '#333',
+    border: '2px solid #e0e0e0',
+    borderRadius: '8px',
+    fontSize: '16px',
+    fontWeight: '600',
+    cursor: 'pointer',
+    marginTop: '8px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '8px'
   }
 };
 

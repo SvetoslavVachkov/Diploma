@@ -1,5 +1,5 @@
-import React from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import React, { useEffect } from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate, useSearchParams } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
 import PrivateRoute from './components/PrivateRoute';
 import Login from './pages/Login';
@@ -10,6 +10,21 @@ import Goals from './pages/Goals';
 import Reports from './pages/Reports';
 import Layout from './components/Layout';
 
+const GoogleAuthHandler = () => {
+  const [searchParams] = useSearchParams();
+
+  useEffect(() => {
+    const token = searchParams.get('token');
+    if (token) {
+      localStorage.setItem('token', token);
+      document.cookie = `token=${token}; path=/; max-age=${30 * 24 * 60 * 60}; SameSite=Lax`;
+      window.location.href = '/';
+    }
+  }, [searchParams]);
+
+  return <div style={{textAlign: 'center', padding: '40px', color: '#333'}}>Обработване...</div>;
+};
+
 function App() {
   return (
     <AuthProvider>
@@ -17,6 +32,7 @@ function App() {
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
+          <Route path="/auth/google" element={<GoogleAuthHandler />} />
           <Route
             path="/*"
             element={

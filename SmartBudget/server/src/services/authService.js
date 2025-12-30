@@ -80,7 +80,7 @@ const registerUser = async (userData) => {
   }
 };
 
-const loginUser = async (email, password) => {
+const loginUser = async (email, password, rememberMe = false) => {
   try {
     const user = await User.findOne({
       where: { email }
@@ -118,10 +118,15 @@ const loginUser = async (email, password) => {
       }
     });
 
-    const token = generateToken(user.id);
+    const expiryHours = rememberMe ? TOKEN_EXPIRY_HOURS * 30 : TOKEN_EXPIRY_HOURS;
+    const token = jwt.sign(
+      { userId: user.id, type: 'access' },
+      JWT_SECRET,
+      { expiresIn: `${expiryHours}h` }
+    );
     const tokenHash = hashToken(token);
     const expiresAt = new Date();
-    expiresAt.setHours(expiresAt.getHours() + TOKEN_EXPIRY_HOURS);
+    expiresAt.setHours(expiresAt.getHours() + expiryHours);
 
     await UserSession.create({
       user_id: user.id,

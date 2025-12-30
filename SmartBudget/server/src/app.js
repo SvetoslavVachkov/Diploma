@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const morgan = require('morgan');
+const cookieParser = require('cookie-parser');
 require('dotenv').config();
 
 const { testConnection } = require('./config/database');
@@ -11,8 +12,9 @@ const { initializeAIProcessingScheduler } = require('./jobs/aiProcessingSchedule
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.use(cors());
+app.use(cors({ credentials: true, origin: process.env.CLIENT_URL || 'http://localhost:3001' }));
 app.use(morgan('dev'));
+app.use(cookieParser());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 

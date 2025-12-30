@@ -18,9 +18,32 @@ const Register = () => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
+  const validateEmail = (email) => {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return { valid: false, error: 'Невалиден имейл адрес' };
+    }
+    
+    const validDomains = ['gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com', 'abv.bg', 'mail.bg'];
+    const domain = email.split('@')[1]?.toLowerCase();
+    
+    if (!validDomains.includes(domain)) {
+      return { valid: false, error: 'Поддържат се само: gmail.com, yahoo.com, hotmail.com, outlook.com, abv.bg, mail.bg' };
+    }
+    
+    return { valid: true };
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
+    
+    const emailValidation = validateEmail(formData.email);
+    if (!emailValidation.valid) {
+      setError(emailValidation.error);
+      return;
+    }
+    
     setLoading(true);
 
     const result = await register(
