@@ -31,7 +31,7 @@ const upload = multer({
     if (allowedTypes.includes(ext)) {
       cb(null, true);
     } else {
-      cb(new Error('Only CSV, TXT, and PDF files are allowed'));
+      cb(new Error('Само CSV, TXT и PDF файлове са разрешени'));
     }
   }
 });
