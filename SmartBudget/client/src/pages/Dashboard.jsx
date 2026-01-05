@@ -3,10 +3,13 @@ import api from '../services/api';
 
 const Dashboard = () => {
   const [summary, setSummary] = useState(null);
+  const [advice, setAdvice] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [adviceLoading, setAdviceLoading] = useState(false);
 
   useEffect(() => {
     fetchSummary();
+    fetchAdvice();
   }, []);
 
   const fetchSummary = async () => {
@@ -29,6 +32,19 @@ const Dashboard = () => {
       });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchAdvice = async () => {
+    try {
+      setAdviceLoading(true);
+      const response = await api.get('/financial/advice?periodDays=90');
+      if (response.data.status === 'success') {
+        setAdvice(response.data.data);
+      }
+    } catch (error) {
+    } finally {
+      setAdviceLoading(false);
     }
   };
 
@@ -58,6 +74,33 @@ const Dashboard = () => {
             {summary?.totals.balance?.toFixed(2) || '0.00'} лв
           </p>
         </div>
+      </div>
+      <div style={styles.section}>
+        <h2 style={styles.sectionTitle}>AI Съвети за управление на парите</h2>
+        {adviceLoading ? (
+          <p style={styles.empty}>Зареждане на съвети...</p>
+        ) : advice?.advice?.length > 0 ? (
+          <div style={styles.adviceContainer}>
+            {advice.advice.map((tip, index) => (
+              <div key={index} style={styles.adviceItem}>
+                <span style={styles.adviceIcon}>💡</span>
+                <p style={styles.adviceText}>{tip}</p>
+              </div>
+            ))}
+            {advice.spending_summary && (
+              <div style={styles.summaryBox}>
+                <p style={styles.summaryText}>
+                  Общо разходи: {advice.spending_summary.total_spent?.toFixed(2) || '0.00'} лв
+                </p>
+                <p style={styles.summaryText}>
+                  Средно на ден: {advice.spending_summary.daily_average?.toFixed(2) || '0.00'} лв
+                </p>
+              </div>
+            )}
+          </div>
+        ) : (
+          <p style={styles.empty}>Няма налични съвети</p>
+        )}
       </div>
       <div style={styles.section}>
         <h2 style={styles.sectionTitle}>Последни транзакции</h2>
@@ -169,6 +212,42 @@ const styles = {
     color: 'white',
     fontSize: '18px',
     padding: '40px'
+  },
+  adviceContainer: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '16px'
+  },
+  adviceItem: {
+    display: 'flex',
+    alignItems: 'flex-start',
+    gap: '12px',
+    padding: '16px',
+    background: '#f0f9ff',
+    borderRadius: '8px',
+    borderLeft: '4px solid #3b82f6'
+  },
+  adviceIcon: {
+    fontSize: '20px',
+    flexShrink: 0
+  },
+  adviceText: {
+    fontSize: '16px',
+    color: '#333',
+    lineHeight: '1.6',
+    margin: 0
+  },
+  summaryBox: {
+    marginTop: '20px',
+    padding: '16px',
+    background: '#f9fafb',
+    borderRadius: '8px',
+    border: '1px solid #e5e7eb'
+  },
+  summaryText: {
+    fontSize: '14px',
+    color: '#666',
+    margin: '4px 0'
   }
 };
 
