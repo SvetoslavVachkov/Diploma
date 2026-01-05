@@ -25,12 +25,12 @@ const upload = multer({
     fileSize: 5 * 1024 * 1024
   },
   fileFilter: (req, file, cb) => {
-    const allowedTypes = ['.txt', '.text'];
+    const allowedTypes = ['.txt', '.text', '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp'];
     const ext = path.extname(file.originalname).toLowerCase();
     if (allowedTypes.includes(ext)) {
       cb(null, true);
     } else {
-      cb(new Error('Only text files are allowed'));
+      cb(new Error('Only text and image files are allowed'));
     }
   }
 });
