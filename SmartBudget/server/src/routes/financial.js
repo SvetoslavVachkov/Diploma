@@ -35,6 +35,9 @@ const {
   scanReceiptHandler,
   uploadReceipt
 } = require('../controllers/receiptController');
+const {
+  getAdviceHandler
+} = require('../controllers/moneyAdviceController');
 
 router.get('/categories', getCategories);
 
@@ -60,6 +63,7 @@ router.get('/reports/yearly', authenticateToken, getYearlyReportHandler);
 router.get('/reports/category-breakdown', authenticateToken, getCategoryBreakdownHandler);
 router.get('/reports/trends', authenticateToken, getTrendsHandler);
 router.get('/reports/spending', authenticateToken, getSpendingReportHandler);
+router.get('/advice', authenticateToken, getAdviceHandler);
 
 router.post('/goals', authenticateToken, createGoalHandler);
 router.get('/goals', authenticateToken, getGoalsHandler);
