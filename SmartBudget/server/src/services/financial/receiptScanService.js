@@ -1,4 +1,6 @@
 const fs = require('fs');
+const path = require('path');
+const Tesseract = require('tesseract.js');
 const { categorizeTransaction } = require('./transactionCategorizationService');
 const { createTransaction } = require('./transactionService');
 
@@ -50,13 +52,31 @@ const parseReceiptText = (text) => {
   };
 };
 
+const extractTextFromImage = async (imagePath) => {
+  try {
+    const { data: { text } } = await Tesseract.recognize(imagePath, 'eng+bul', {
+      logger: () => {}
+    });
+    return text;
+  } catch (error) {
+    throw new Error(`OCR failed: ${error.message}`);
+  }
+};
+
 const scanReceipt = async (userId, receiptText, receiptFile) => {
   try {
     let text = receiptText || '';
     
     if (receiptFile) {
-      const fileContent = fs.readFileSync(receiptFile.path, 'utf8');
-      text = fileContent;
+      const fileExt = path.extname(receiptFile.originalname || receiptFile.path).toLowerCase();
+      const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp'];
+      
+      if (imageExtensions.includes(fileExt)) {
+        text = await extractTextFromImage(receiptFile.path);
+      } else {
+        const fileContent = fs.readFileSync(receiptFile.path, 'utf8');
+        text = fileContent;
+      }
       fs.unlinkSync(receiptFile.path);
     }
     
