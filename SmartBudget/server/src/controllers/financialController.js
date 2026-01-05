@@ -42,7 +42,25 @@ const createTransactionHandler = async (req, res) => {
       });
     }
 
-    const result = await createTransaction(userId, req.body);
+    let transactionData = { ...req.body };
+
+    if (transactionData.description && !transactionData.category_id) {
+      const { categorizeTransaction } = require('../services/financial/transactionCategorizationService');
+      const amount = parseFloat(transactionData.amount) || 0;
+      const categorization = await categorizeTransaction(transactionData.description, amount, {
+        hfApiKey: process.env.HF_TXN_API_KEY,
+        hfModel: process.env.HF_TXN_MODEL
+      });
+      
+      if (categorization.success && categorization.result) {
+        transactionData.category_id = categorization.result.categoryId;
+        if (!transactionData.type) {
+          transactionData.type = categorization.result.type;
+        }
+      }
+    }
+
+    const result = await createTransaction(userId, transactionData);
 
     if (result.success) {
       await updateAllBudgetsSpentAmount(userId);
