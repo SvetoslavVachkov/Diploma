@@ -1,7 +1,51 @@
 const fs = require('fs');
+const path = require('path');
 const csv = require('csv-parser');
+const pdfParse = require('pdf-parse');
 const { createTransaction } = require('./transactionService');
 const { categorizeTransaction } = require('./transactionCategorizationService');
+
+const parsePDFFile = async (filePath) => {
+  try {
+    const dataBuffer = fs.readFileSync(filePath);
+    const data = await pdfParse(dataBuffer);
+    const text = data.text;
+    
+    const lines = text.split('\n').filter(line => line.trim().length > 0);
+    const results = [];
+    
+    for (const line of lines) {
+      const parts = line.split(/\s+/).filter(p => p.length > 0);
+      if (parts.length >= 2) {
+        const row = {};
+        const dateMatch = line.match(/(\d{1,2}[.\/]\d{1,2}[.\/]\d{2,4})/);
+        const amountMatch = line.match(/([\d.,]+)/g);
+        
+        if (dateMatch) {
+          row.date = dateMatch[1];
+        }
+        
+        if (amountMatch && amountMatch.length > 0) {
+          const amounts = amountMatch.map(a => parseFloat(a.replace(',', '.')));
+          row.amount = Math.max(...amounts).toString();
+        }
+        
+        const descParts = parts.filter(p => !p.match(/^\d+[.,]\d+$/) && !p.match(/^\d{1,2}[.\/]\d{1,2}/));
+        if (descParts.length > 0) {
+          row.description = descParts.join(' ');
+        }
+        
+        if (row.amount || row.description) {
+          results.push(row);
+        }
+      }
+    }
+    
+    return results;
+  } catch (error) {
+    throw new Error(`Failed to parse PDF: ${error.message}`);
+  }
+};
 
 const parseCSVFile = async (filePath) => {
   return new Promise((resolve, reject) => {
@@ -114,7 +158,14 @@ const parseAmount = (amountString) => {
 
 const importCSVTransactions = async (userId, filePath, options = {}) => {
   try {
-    const rows = await parseCSVFile(filePath);
+    const fileExt = path.extname(filePath).toLowerCase();
+    let rows = [];
+    
+    if (fileExt === '.pdf') {
+      rows = await parsePDFFile(filePath);
+    } else {
+      rows = await parseCSVFile(filePath);
+    }
     
     if (rows.length === 0) {
       return {
