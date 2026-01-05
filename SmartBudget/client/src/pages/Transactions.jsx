@@ -1,5 +1,30 @@
 import React, { useState, useEffect } from 'react';
+import { Line, Bar, Doughnut } from 'react-chartjs-2';
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  BarElement,
+  ArcElement,
+  Title,
+  Tooltip,
+  Legend
+} from 'chart.js';
 import api from '../services/api';
+
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  BarElement,
+  ArcElement,
+  Title,
+  Tooltip,
+  Legend
+);
 
 const Transactions = () => {
   const [transactions, setTransactions] = useState([]);
@@ -58,6 +83,8 @@ const Transactions = () => {
       });
       fetchData();
     } catch (error) {
+      console.error('Error creating transaction:', error);
+      alert('Грешка при създаване на транзакция: ' + (error.response?.data?.message || 'Неизвестна грешка'));
     }
   };
 
@@ -67,6 +94,8 @@ const Transactions = () => {
         await api.delete(`/financial/transactions/${id}`);
         fetchData();
       } catch (error) {
+        console.error('Error deleting transaction:', error);
+        alert('Грешка при изтриване на транзакция: ' + (error.response?.data?.message || 'Неизвестна грешка'));
       }
     }
   };
@@ -133,6 +162,129 @@ const Transactions = () => {
   const expenseCategories = categories.filter((c) => c.type === 'expense');
   const incomeCategories = categories.filter((c) => c.type === 'income');
 
+  const totalIncome = transactions
+    .filter(tx => tx.type === 'income')
+    .reduce((sum, tx) => sum + parseFloat(tx.amount || 0), 0);
+
+  const totalExpense = transactions
+    .filter(tx => tx.type === 'expense')
+    .reduce((sum, tx) => sum + parseFloat(tx.amount || 0), 0);
+
+  const balance = totalIncome - totalExpense;
+
+  const last30Days = transactions
+    .filter(tx => {
+      const txDate = new Date(tx.transaction_date);
+      const daysAgo = (Date.now() - txDate.getTime()) / (1000 * 60 * 60 * 24);
+      return daysAgo <= 30;
+    })
+    .sort((a, b) => new Date(a.transaction_date) - new Date(b.transaction_date));
+
+  const dailyData = {};
+  last30Days.forEach(tx => {
+    const date = new Date(tx.transaction_date).toLocaleDateString('bg-BG');
+    if (!dailyData[date]) {
+      dailyData[date] = { income: 0, expense: 0 };
+    }
+    if (tx.type === 'income') {
+      dailyData[date].income += parseFloat(tx.amount || 0);
+    } else {
+      dailyData[date].expense += parseFloat(tx.amount || 0);
+    }
+  });
+
+  const lineChartData = {
+    labels: Object.keys(dailyData),
+    datasets: [
+      {
+        label: 'Приходи',
+        data: Object.values(dailyData).map(d => d.income),
+        borderColor: '#10b981',
+        backgroundColor: 'rgba(16, 185, 129, 0.1)',
+        tension: 0.4
+      },
+      {
+        label: 'Разходи',
+        data: Object.values(dailyData).map(d => d.expense),
+        borderColor: '#ef4444',
+        backgroundColor: 'rgba(239, 68, 68, 0.1)',
+        tension: 0.4
+      }
+    ]
+  };
+
+  const categoryTotals = {};
+  transactions.forEach(tx => {
+    if (tx.type === 'expense' && tx.category_id) {
+      const cat = categories.find(c => c.id === tx.category_id);
+      const catName = cat?.name || 'Други';
+      categoryTotals[catName] = (categoryTotals[catName] || 0) + parseFloat(tx.amount || 0);
+    }
+  });
+
+  const topCategories = Object.entries(categoryTotals)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5);
+
+  const doughnutData = {
+    labels: topCategories.map(([name]) => name),
+    datasets: [{
+      data: topCategories.map(([, amount]) => amount),
+      backgroundColor: [
+        '#667eea',
+        '#764ba2',
+        '#f093fb',
+        '#4facfe',
+        '#00f2fe'
+      ],
+      borderWidth: 0
+    }]
+  };
+
+  const monthlyComparison = {};
+  transactions.forEach(tx => {
+    const date = new Date(tx.transaction_date);
+    const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+    if (!monthlyComparison[monthKey]) {
+      monthlyComparison[monthKey] = { income: 0, expense: 0 };
+    }
+    if (tx.type === 'income') {
+      monthlyComparison[monthKey].income += parseFloat(tx.amount || 0);
+    } else {
+      monthlyComparison[monthKey].expense += parseFloat(tx.amount || 0);
+    }
+  });
+
+  const sortedMonths = Object.keys(monthlyComparison).sort().slice(-6);
+  const barChartData = {
+    labels: sortedMonths.map(month => {
+      const [year, m] = month.split('-');
+      return `${m}/${year}`;
+    }),
+    datasets: [
+      {
+        label: 'Приходи',
+        data: sortedMonths.map(month => monthlyComparison[month].income),
+        backgroundColor: '#10b981'
+      },
+      {
+        label: 'Разходи',
+        data: sortedMonths.map(month => monthlyComparison[month].expense),
+        backgroundColor: '#ef4444'
+      }
+    ]
+  };
+
+  const chartOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: {
+        position: 'top'
+      }
+    }
+  };
+
   return (
     <div>
       <div style={styles.header}>
@@ -155,6 +307,53 @@ const Transactions = () => {
           </button>
         </div>
       </div>
+
+      {transactions.length > 0 && (
+        <div style={styles.chartsGrid}>
+          {Object.keys(dailyData).length > 0 && (
+            <div style={styles.chartCard}>
+              <h2 style={styles.chartTitle}>Тренд за последните 30 дни</h2>
+              <div style={styles.chartContainer}>
+                <Line data={lineChartData} options={chartOptions} />
+              </div>
+            </div>
+          )}
+
+          {topCategories.length > 0 && (
+            <div style={styles.chartCard}>
+              <h2 style={styles.chartTitle}>Разпределение по категории</h2>
+              <div style={styles.chartContainer}>
+                <Doughnut data={doughnutData} options={chartOptions} />
+              </div>
+              <div style={styles.categoryList}>
+                {topCategories.map(([name, amount], idx) => (
+                  <div key={name} style={styles.categoryItem}>
+                    <div style={styles.categoryInfo}>
+                      <div
+                        style={{
+                          ...styles.categoryColor,
+                          background: doughnutData.datasets[0].backgroundColor[idx]
+                        }}
+                      />
+                      <span style={styles.categoryName}>{name}</span>
+                    </div>
+                    <span style={styles.categoryAmount}>{amount.toFixed(2)} лв</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {sortedMonths.length > 0 && (
+            <div style={styles.chartCard}>
+              <h2 style={styles.chartTitle}>Месечно сравнение</h2>
+              <div style={styles.chartContainer}>
+                <Bar data={barChartData} options={chartOptions} />
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {showModal && (
         <div style={styles.modalOverlay} onClick={() => setShowModal(false)}>
