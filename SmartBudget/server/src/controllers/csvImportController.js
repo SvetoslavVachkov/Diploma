@@ -26,12 +26,12 @@ const upload = multer({
     fileSize: 10 * 1024 * 1024
   },
   fileFilter: (req, file, cb) => {
-    const allowedTypes = ['.csv', '.txt'];
+    const allowedTypes = ['.csv', '.txt', '.pdf'];
     const ext = path.extname(file.originalname).toLowerCase();
     if (allowedTypes.includes(ext)) {
       cb(null, true);
     } else {
-      cb(new Error('Only CSV files are allowed'));
+      cb(new Error('Only CSV, TXT, and PDF files are allowed'));
     }
   }
 });
@@ -52,7 +52,7 @@ const importCSVHandler = async (req, res) => {
     if (!req.file) {
       return res.status(400).json({
         status: 'error',
-        message: 'CSV file is required'
+        message: 'File is required'
       });
     }
 
