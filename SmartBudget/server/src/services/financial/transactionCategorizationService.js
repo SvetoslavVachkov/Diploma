@@ -191,32 +191,36 @@ const classifyWithHuggingFace = async (text, categories, apiKey, model) => {
 
 const getCategoryKeywords = () => {
   return {
-    'Храна': ['храна', 'ресторант', 'кафе', 'супермаркет', 'лидл', 'кауфланд', 'била', 'магазин', 'хранителни', 'продукти', 'пица', 'бургер', 'кафене', 'макдоналдс', 'mcdonalds', 'kfc', 'домино', 'domino'],
-    'Транспорт': ['транспорт', 'бензин', 'гориво', 'fuel', 'lukoil', 'лукойл', 'омв', 'omv', 'shell', 'автобус', 'метро', 'такси', 'uber', 'bolt', 'паркинг', 'автомобил', 'кола'],
-    'Наем': ['наем', 'наема', 'квартира', 'жилище', 'ипотека'],
-    'Комунални': ['комунални', 'ток', 'електричество', 'вода', 'телефон', 'интернет', 'телеком', 'виваком', 'а1', 'теленор', 'електроснабдяване'],
-    'Забавление': ['забавление', 'кино', 'театър', 'концерт', 'клуб', 'бар', 'алкохол', 'билет', 'игра', 'игри'],
-    'Здраве': ['здраве', 'лекар', 'аптека', 'болница', 'лекарство', 'стоматолог', 'лечение', 'медицина', 'фармация'],
-    'Образование': ['образование', 'училище', 'университет', 'курс', 'обучение', 'книга', 'учебник'],
-    'Обувки и дрехи': ['дрехи', 'обувки', 'мода', 'ризи', 'панталони', 'облекло', 'обувка'],
-    'Техника': ['техника', 'компютър', 'телефон', 'таблет', 'телевизор', 'електроника', 'софтуер', 'хардуер'],
-    'Заплата': ['заплата', 'заплатa', 'заплат', 'зарплата', 'зарплатa', 'зарплат'],
-    'Бонуси': ['бонус', 'премия', 'награда'],
-    'Инвестиции': ['инвестиция', 'акции', 'облигации', 'депозит', 'банка'],
-    'Фрийланс': ['фрийланс', 'freelance', 'проект', 'клиент']
+    'Гориво': ['lukoil', 'лукойл', 'omv', 'омв', 'shell', 'бензин', 'гориво', 'fuel', 'petrol', 'газ', 'газова', 'бензиностанция', 'автогара', 'автосервиз'],
+    'Храна': ['храна', 'ресторант', 'кафе', 'супермаркет', 'лидл', 'lidl', 'кауфланд', 'kaufland', 'била', 'billa', 'магазин', 'хранителни', 'продукти', 'пица', 'pizza', 'бургер', 'burger', 'кафене', 'макдоналдс', 'mcdonalds', 'kfc', 'домино', 'domino', 'ресторант', 'restaurant', 'кафене', 'cafe', 'кафе', 'coffee'],
+    'Транспорт': ['транспорт', 'автобус', 'метро', 'такси', 'uber', 'bolt', 'паркинг', 'автомобил', 'кола', 'авто', 'car', 'bus', 'taxi', 'parking'],
+    'Наем': ['наем', 'наема', 'квартира', 'жилище', 'ипотека', 'rent', 'apartment', 'mortgage'],
+    'Комунални': ['комунални', 'ток', 'електричество', 'вода', 'телефон', 'интернет', 'телеком', 'виваком', 'vivacom', 'а1', 'a1', 'теленор', 'telenor', 'електроснабдяване', 'utility', 'electricity', 'water', 'phone', 'internet'],
+    'Забавление': ['забавление', 'кино', 'театър', 'концерт', 'клуб', 'бар', 'алкохол', 'билет', 'игра', 'игри', 'entertainment', 'cinema', 'theater', 'concert', 'club', 'bar', 'alcohol', 'ticket', 'game'],
+    'Здраве': ['здраве', 'лекар', 'аптека', 'болница', 'лекарство', 'стоматолог', 'лечение', 'медицина', 'фармация', 'health', 'doctor', 'pharmacy', 'hospital', 'medicine', 'dentist', 'treatment'],
+    'Образование': ['образование', 'училище', 'университет', 'курс', 'обучение', 'книга', 'учебник', 'education', 'school', 'university', 'course', 'book'],
+    'Обувки и дрехи': ['дрехи', 'обувки', 'мода', 'ризи', 'панталони', 'облекло', 'обувка', 'clothes', 'shoes', 'fashion', 'shirt', 'pants', 'clothing'],
+    'Техника': ['техника', 'компютър', 'телефон', 'таблет', 'телевизор', 'електроника', 'софтуер', 'хардуер', 'tech', 'computer', 'phone', 'tablet', 'tv', 'electronics', 'software', 'hardware'],
+    'Заплата': ['заплата', 'заплатa', 'заплат', 'зарплата', 'зарплатa', 'зарплат', 'salary', 'wage', 'pay'],
+    'Бонуси': ['бонус', 'премия', 'награда', 'bonus', 'premium', 'reward'],
+    'Инвестиции': ['инвестиция', 'акции', 'облигации', 'депозит', 'банка', 'investment', 'stocks', 'bonds', 'deposit', 'bank'],
+    'Фрийланс': ['фрийланс', 'freelance', 'проект', 'клиент', 'project', 'client']
   };
 };
 
 const categorizeWithKeywords = async (description, amount) => {
-  const textLower = description.toLowerCase();
+  const textLower = description.toLowerCase().trim();
   const keywords = getCategoryKeywords();
   const categoryScores = [];
 
   for (const [categoryName, categoryKeywords] of Object.entries(keywords)) {
     let score = 0;
     for (const keyword of categoryKeywords) {
-      if (textLower.includes(keyword.toLowerCase())) {
-        score += 0.3;
+      const keywordLower = keyword.toLowerCase();
+      if (textLower === keywordLower) {
+        score += 1.0;
+      } else if (textLower.includes(keywordLower)) {
+        score += 0.4;
       }
     }
     if (score > 0) {
@@ -226,7 +230,7 @@ const categorizeWithKeywords = async (description, amount) => {
 
   categoryScores.sort((a, b) => b.score - a.score);
 
-  if (categoryScores.length > 0 && categoryScores[0].score >= 0.3) {
+  if (categoryScores.length > 0 && categoryScores[0].score >= 0.2) {
     return categoryScores[0].categoryName;
   }
 
@@ -315,34 +319,37 @@ const categorizeTransaction = async (description, amount, options = {}) => {
 
     if (!categoryName) {
       const defaultCategory = transactionType === 'income' ? 'Други приходи' : 'Други разходи';
-      const category = await FinancialCategory.findOne({
+      let category = await FinancialCategory.findOne({
         where: { name: defaultCategory, type: transactionType, is_active: true }
       });
       
-      if (category) {
-        const result = { categoryId: category.id, categoryName: category.name, type: transactionType };
-        await setCachedResult(cacheKey, result);
-        return { success: true, result, fromCache: false };
+      if (!category) {
+        category = await FinancialCategory.create({
+          name: defaultCategory,
+          type: transactionType,
+          icon: null,
+          color: null,
+          is_active: true
+        });
       }
-      return { success: false, error: 'Default category not found' };
+      
+      const result = { categoryId: category.id, categoryName: category.name, type: transactionType };
+      await setCachedResult(cacheKey, result);
+      return { success: true, result, fromCache: false };
     }
 
-    const category = await FinancialCategory.findOne({
+    let category = await FinancialCategory.findOne({
       where: { name: categoryName, type: transactionType, is_active: true }
     });
 
     if (!category) {
-      const defaultCategory = transactionType === 'income' ? 'Други приходи' : 'Други разходи';
-      const fallbackCategory = await FinancialCategory.findOne({
-        where: { name: defaultCategory, type: transactionType, is_active: true }
+      category = await FinancialCategory.create({
+        name: categoryName,
+        type: transactionType,
+        icon: null,
+        color: null,
+        is_active: true
       });
-      
-      if (fallbackCategory) {
-        const result = { categoryId: fallbackCategory.id, categoryName: fallbackCategory.name, type: transactionType };
-        await setCachedResult(cacheKey, result);
-        return { success: true, result, fromCache: false };
-      }
-      return { success: false, error: 'Category not found' };
     }
 
     const result = { categoryId: category.id, categoryName: category.name, type: transactionType };
