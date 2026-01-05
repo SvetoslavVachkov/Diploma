@@ -31,6 +31,10 @@ const {
   getSpendingReportHandler,
   uploadCSV
 } = require('../controllers/csvImportController');
+const {
+  scanReceiptHandler,
+  uploadReceipt
+} = require('../controllers/receiptController');
 
 router.get('/categories', getCategories);
 
@@ -42,6 +46,8 @@ router.put('/transactions/:id', authenticateToken, updateTransactionHandler);
 router.delete('/transactions/:id', authenticateToken, deleteTransactionHandler);
 
 router.post('/transactions/import-csv', authenticateToken, uploadCSV, importCSVHandler);
+
+router.post('/receipts/scan', authenticateToken, uploadReceipt, scanReceiptHandler);
 
 router.post('/budgets', authenticateToken, createBudgetHandler);
 router.get('/budgets', authenticateToken, getBudgetsHandler);

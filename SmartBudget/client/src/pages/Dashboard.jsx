@@ -15,18 +15,17 @@ const Dashboard = () => {
         api.get('/financial/transactions?limit=5'),
         api.get('/financial/transactions/summary')
       ]);
-      const transactionsData = Array.isArray(transactionsRes.data.data) 
-        ? transactionsRes.data.data 
+      const transactionsData = Array.isArray(transactionsRes.data.data)
+        ? transactionsRes.data.data
         : (transactionsRes.data.data?.transactions || []);
       setSummary({
         recent: transactionsData,
         totals: summaryRes.data.data || {}
       });
     } catch (error) {
-      console.error('Error fetching summary:', error);
       setSummary({
         recent: [],
-        totals: { total_income: 0, total_expense: 0, balance: 0 }
+        totals: {}
       });
     } finally {
       setLoading(false);

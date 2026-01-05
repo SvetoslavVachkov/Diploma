@@ -31,6 +31,12 @@ const Transactions = () => {
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
+  const [receiptModal, setReceiptModal] = useState(false);
+  const [receiptText, setReceiptText] = useState('');
+  const [receiptFile, setReceiptFile] = useState(null);
+  const [receiptResult, setReceiptResult] = useState(null);
+  const [receiptLoading, setReceiptLoading] = useState(false);
+  const [receiptError, setReceiptError] = useState('');
   const [formData, setFormData] = useState({
     description: '',
     amount: '',
@@ -50,13 +56,12 @@ const Transactions = () => {
         api.get('/financial/transactions'),
         api.get('/financial/categories')
       ]);
-      const transactionsData = Array.isArray(txRes.data.data) 
-        ? txRes.data.data 
-        : (txRes.data.data?.transactions || []);
+      const transactionsData = Array.isArray(txRes.data.data)
+        ? txRes.data.data
+        : (txRes.data.data?.transactions || txRes.data.data || []);
       setTransactions(transactionsData);
       setCategories(catRes.data.data || []);
     } catch (error) {
-      console.error('Error fetching data:', error);
       setTransactions([]);
       setCategories([]);
     } finally {
@@ -114,6 +119,40 @@ const Transactions = () => {
       alert('Грешка при импортиране: ' + (error.response?.data?.message || 'Неизвестна грешка'));
     }
     e.target.value = '';
+  };
+
+  const handleReceiptScan = async (e) => {
+    e.preventDefault();
+    setReceiptError('');
+    setReceiptLoading(true);
+    setReceiptResult(null);
+    try {
+      const form = new FormData();
+      if (receiptText.trim()) {
+        form.append('receipt_text', receiptText);
+      }
+      if (receiptFile) {
+        form.append('receiptFile', receiptFile);
+      }
+      if (!receiptText.trim() && !receiptFile) {
+        setReceiptError('Добавете текст или файл.');
+        setReceiptLoading(false);
+        return;
+      }
+      const response = await api.post('/financial/receipts/scan', form, {
+        headers: {
+          'Content-Type': 'multipart/form-data'
+        }
+      });
+      setReceiptResult(response.data.data);
+      fetchData();
+      setReceiptText('');
+      setReceiptFile(null);
+    } catch (error) {
+      setReceiptError(error.response?.data?.message || 'Грешка при сканиране на бележка.');
+    } finally {
+      setReceiptLoading(false);
+    }
   };
 
   if (loading) {
@@ -251,6 +290,9 @@ const Transactions = () => {
       <div style={styles.header}>
         <h1 style={styles.title}>Транзакции</h1>
         <div style={styles.headerActions}>
+          <button onClick={() => setReceiptModal(true)} style={styles.secondaryButton}>
+            Сканирай бележка
+          </button>
           <label style={styles.uploadButton}>
             Импортирай CSV
             <input
@@ -263,27 +305,6 @@ const Transactions = () => {
           <button onClick={() => setShowModal(true)} style={styles.addButton}>
             + Добави транзакция
           </button>
-        </div>
-      </div>
-
-      <div style={styles.summaryCards}>
-        <div style={styles.summaryCard}>
-          <h3 style={styles.summaryTitle}>Приходи</h3>
-          <p style={styles.summaryAmount}>{totalIncome.toFixed(2)} лв</p>
-        </div>
-        <div style={styles.summaryCard}>
-          <h3 style={styles.summaryTitle}>Разходи</h3>
-          <p style={styles.summaryAmount}>{totalExpense.toFixed(2)} лв</p>
-        </div>
-        <div style={styles.summaryCard}>
-          <h3 style={styles.summaryTitle}>Баланс</h3>
-          <p style={{ ...styles.summaryAmount, color: balance >= 0 ? '#10b981' : '#ef4444' }}>
-            {balance.toFixed(2)} лв
-          </p>
-        </div>
-        <div style={styles.summaryCard}>
-          <h3 style={styles.summaryTitle}>Брой транзакции</h3>
-          <p style={styles.summaryAmount}>{transactions.length}</p>
         </div>
       </div>
 
@@ -390,6 +411,55 @@ const Transactions = () => {
                 </button>
                 <button type="submit" style={styles.submitButton}>
                   Запази
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {receiptModal && (
+        <div style={styles.modalOverlay} onClick={() => setReceiptModal(false)}>
+          <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
+            <h2 style={styles.modalTitle}>Сканирай бележка</h2>
+            <form onSubmit={handleReceiptScan} style={styles.form}>
+              <textarea
+                placeholder="Поставете текст от бележка"
+                value={receiptText}
+                onChange={(e) => setReceiptText(e.target.value)}
+                style={styles.textarea}
+                rows={5}
+              />
+              <input
+                type="file"
+                accept=".txt"
+                onChange={(e) => setReceiptFile(e.target.files[0])}
+                style={styles.input}
+              />
+              {receiptError && <div style={styles.errorBox}>{receiptError}</div>}
+              {receiptResult && (
+                <div style={styles.resultBox}>
+                  <p style={styles.resultTitle}>Импортирани: {receiptResult.imported} / {receiptResult.total}</p>
+                  <div style={styles.resultList}>
+                    {receiptResult.results.map((item, idx) => (
+                      <div key={`${item.description}-${idx}`} style={styles.resultItem}>
+                        <div>
+                          <div style={styles.resultDesc}>{item.description}</div>
+                          <div style={styles.resultCategory}>{item.category || 'Без категория'}</div>
+                        </div>
+                        <div style={styles.resultAmount}>{item.amount.toFixed(2)} лв</div>
+                        <div style={styles.resultStatus}>{item.status === 'imported' ? 'Добавена' : 'Грешка'}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <div style={styles.modalActions}>
+                <button type="button" onClick={() => setReceiptModal(false)} style={styles.cancelButton}>
+                  Затвори
+                </button>
+                <button type="submit" style={styles.submitButton} disabled={receiptLoading}>
+                  {receiptLoading ? 'Сканиране...' : 'Сканирай'}
                 </button>
               </div>
             </form>
@@ -625,82 +695,97 @@ const styles = {
     fontSize: '18px',
     padding: '40px'
   },
-  summaryCards: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-    gap: '20px',
-    marginBottom: '30px'
+  headerActions: {
+    display: 'flex',
+    gap: '12px',
+    alignItems: 'center'
   },
-  summaryCard: {
+  secondaryButton: {
+    padding: '12px 24px',
     background: 'white',
-    borderRadius: '16px',
-    padding: '24px',
-    boxShadow: '0 4px 20px rgba(0,0,0,0.1)'
+    color: '#667eea',
+    border: '2px solid #667eea',
+    borderRadius: '8px',
+    fontSize: '16px',
+    fontWeight: '600',
+    cursor: 'pointer'
   },
-  summaryTitle: {
-    fontSize: '14px',
-    color: '#666',
-    marginBottom: '8px'
-  },
-  summaryAmount: {
-    fontSize: '28px',
-    fontWeight: 'bold',
-    color: '#333'
-  },
-  chartsGrid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))',
-    gap: '30px',
-    marginBottom: '30px'
-  },
-  chartCard: {
+  uploadButton: {
+    padding: '12px 24px',
     background: 'white',
-    borderRadius: '16px',
-    padding: '30px',
-    boxShadow: '0 4px 20px rgba(0,0,0,0.1)'
+    color: '#667eea',
+    border: '2px solid #667eea',
+    borderRadius: '8px',
+    fontSize: '16px',
+    fontWeight: '600',
+    cursor: 'pointer',
+    display: 'inline-block'
   },
-  chartTitle: {
-    fontSize: '20px',
-    fontWeight: 'bold',
+  errorBox: {
+    background: '#fee2e2',
+    color: '#991b1b',
+    padding: '12px',
+    borderRadius: '8px',
+    marginBottom: '16px',
+    fontSize: '14px'
+  },
+  textarea: {
+    padding: '12px',
+    border: '2px solid #e0e0e0',
+    borderRadius: '8px',
+    fontSize: '16px',
+    outline: 'none',
+    resize: 'vertical',
+    fontFamily: 'inherit'
+  },
+  resultBox: {
+    background: '#f9fafb',
+    borderRadius: '8px',
+    padding: '16px',
+    marginBottom: '16px'
+  },
+  resultTitle: {
+    fontSize: '16px',
+    fontWeight: '600',
     color: '#333',
-    marginBottom: '20px'
+    marginBottom: '12px'
   },
-  chartContainer: {
-    height: '300px',
-    marginBottom: '20px'
-  },
-  categoryList: {
+  resultList: {
     display: 'flex',
     flexDirection: 'column',
-    gap: '12px'
+    gap: '8px'
   },
-  categoryItem: {
+  resultItem: {
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
     padding: '12px',
-    background: '#f9fafb',
-    borderRadius: '8px'
+    background: 'white',
+    borderRadius: '6px',
+    border: '1px solid #e0e0e0'
   },
-  categoryInfo: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '12px'
-  },
-  categoryColor: {
-    width: '16px',
-    height: '16px',
-    borderRadius: '4px'
-  },
-  categoryName: {
-    fontSize: '16px',
+  resultDesc: {
+    fontSize: '14px',
     fontWeight: '500',
-    color: '#333'
+    color: '#333',
+    marginBottom: '4px'
   },
-  categoryAmount: {
-    fontSize: '16px',
-    fontWeight: 'bold',
-    color: '#333'
+  resultCategory: {
+    fontSize: '12px',
+    color: '#666'
+  },
+  resultAmount: {
+    fontSize: '14px',
+    fontWeight: '600',
+    color: '#333',
+    marginRight: '12px'
+  },
+  resultStatus: {
+    fontSize: '12px',
+    padding: '4px 8px',
+    borderRadius: '4px',
+    background: '#d1fae5',
+    color: '#065f46'
   }
 };
 
