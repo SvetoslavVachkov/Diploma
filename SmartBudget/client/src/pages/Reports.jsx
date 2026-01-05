@@ -37,6 +37,7 @@ const Reports = () => {
 
   const fetchReports = async () => {
     try {
+      setLoading(true);
       const params = {};
       if (dateFrom) params.date_from = dateFrom;
       if (dateTo) params.date_to = dateTo;
@@ -50,9 +51,12 @@ const Reports = () => {
           }
         })
       ]);
-      setSpendingReport(spendingRes.data.data);
-      setMonthlyReport(monthlyRes.data.data);
+      setSpendingReport(spendingRes.data.data || null);
+      setMonthlyReport(monthlyRes.data.data || null);
     } catch (error) {
+      console.error('Error fetching reports:', error);
+      setSpendingReport(null);
+      setMonthlyReport(null);
     } finally {
       setLoading(false);
     }
