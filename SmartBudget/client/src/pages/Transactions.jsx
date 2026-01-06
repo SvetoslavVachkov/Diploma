@@ -72,6 +72,7 @@ const Transactions = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
+      setLoading(true);
       await api.post('/financial/transactions', formData);
       setShowModal(false);
       setFormData({
@@ -81,21 +82,24 @@ const Transactions = () => {
         transaction_date: new Date().toISOString().split('T')[0],
         type: 'expense'
       });
-      fetchData();
+      await fetchData();
     } catch (error) {
-      console.error('Error creating transaction:', error);
       alert('Грешка при създаване на транзакция: ' + (error.response?.data?.message || 'Неизвестна грешка'));
+    } finally {
+      setLoading(false);
     }
   };
 
   const handleDelete = async (id) => {
     if (window.confirm('Сигурни ли сте?')) {
       try {
+        setLoading(true);
         await api.delete(`/financial/transactions/${id}`);
-        fetchData();
+        await fetchData();
       } catch (error) {
-        console.error('Error deleting transaction:', error);
         alert('Грешка при изтриване на транзакция: ' + (error.response?.data?.message || 'Неизвестна грешка'));
+      } finally {
+        setLoading(false);
       }
     }
   };
@@ -108,17 +112,29 @@ const Transactions = () => {
     formData.append('csvFile', file);
 
     try {
-      await api.post('/financial/transactions/import-csv', formData, {
+      setLoading(true);
+      const response = await api.post('/financial/transactions/import-csv', formData, {
         headers: {
           'Content-Type': 'multipart/form-data'
         }
       });
-      fetchData();
-      alert('CSV файлът е импортиран успешно!');
+      
+      if (response.data && response.data.data) {
+        const results = response.data.data.results || response.data.data;
+        const imported = results.imported || 0;
+        const total = results.total || 0;
+        alert(`Импортирани ${imported} от ${total} транзакции`);
+      } else {
+        alert('CSV файлът е импортиран успешно!');
+      }
+      
+      await fetchData();
     } catch (error) {
       alert('Грешка при импортиране: ' + (error.response?.data?.message || 'Неизвестна грешка'));
+    } finally {
+      setLoading(false);
+      e.target.value = '';
     }
-    e.target.value = '';
   };
 
   const handleReceiptScan = async (e) => {
@@ -294,10 +310,10 @@ const Transactions = () => {
             Сканирай бележка
           </button>
           <label style={styles.uploadButton}>
-            Импортирай CSV
+            Импортирай CSV/PDF
             <input
               type="file"
-              accept=".csv"
+              accept=".csv,.pdf,.txt"
               onChange={handleCSVUpload}
               style={{ display: 'none' }}
             />
@@ -308,7 +324,7 @@ const Transactions = () => {
         </div>
       </div>
 
-      {transactions.length > 0 && (
+      {!loading && transactions.length > 0 && (
         <div style={styles.chartsGrid}>
           {Object.keys(dailyData).length > 0 && (
             <div style={styles.chartCard}>
@@ -467,8 +483,9 @@ const Transactions = () => {
         </div>
       )}
 
-      <div style={styles.tableContainer}>
-        <table style={styles.table}>
+      {!loading && (
+        <div style={styles.tableContainer}>
+          <table style={styles.table}>
           <thead>
             <tr>
               <th style={styles.th}>Дата</th>
@@ -531,7 +548,8 @@ const Transactions = () => {
             )}
           </tbody>
         </table>
-      </div>
+        </div>
+      )}
     </div>
   );
 };
