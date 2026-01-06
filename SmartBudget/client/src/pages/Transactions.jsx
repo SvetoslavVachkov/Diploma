@@ -563,21 +563,6 @@ const styles = {
     flexWrap: 'wrap',
     gap: '12px'
   },
-  headerActions: {
-    display: 'flex',
-    gap: '12px'
-  },
-  uploadButton: {
-    padding: '12px 24px',
-    background: 'white',
-    color: '#667eea',
-    border: '2px solid #667eea',
-    borderRadius: '8px',
-    fontSize: '16px',
-    fontWeight: '600',
-    cursor: 'pointer',
-    display: 'inline-block'
-  },
   title: {
     fontSize: '32px',
     fontWeight: 'bold',
