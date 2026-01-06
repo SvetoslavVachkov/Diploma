@@ -7,11 +7,12 @@ const { createTransaction } = require('./transactionService');
 const parseReceiptText = (text) => {
   const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
   const items = [];
-  const amountPattern = /[\d.,]+\s*(лв|BGN|EUR|€|\$)/i;
+  const euroAmountPattern = /(?:[\d.,]+\s*(?:EUR|€))|(?:(?:€|EUR)\s*[\d.,]+)/i;
   const datePattern = /(\d{1,2}[.\/]\d{1,2}[.\/]\d{2,4})/;
   
   let foundDate = null;
   let totalAmount = null;
+  let merchantName = null;
   
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
@@ -21,78 +22,189 @@ const parseReceiptText = (text) => {
       foundDate = dateMatch[1];
     }
     
-    if (line.toLowerCase().includes('общо') || line.toLowerCase().includes('total') || line.toLowerCase().includes('сума')) {
-      const amountMatch = line.match(amountPattern);
-      if (amountMatch) {
-        totalAmount = parseFloat(amountMatch[0].replace(/[^\d.,]/g, '').replace(',', '.'));
+    if (!merchantName && line.length > 3 && line.length < 80 && !line.match(euroAmountPattern) && !line.match(datePattern) && !line.toLowerCase().match(/общо|total|сума|date|дата|час|time|address|адрес|тел|phone|тел\.|тел:/i)) {
+      const lineLower = line.toLowerCase();
+      if (lineLower.match(/ресторант|restaurant|cafe|кафе|магазин|supermarket|store|shop|merchant|заведение/i) || 
+          (!line.match(/^\d+/) && !line.match(/^[\d.,\s€EUR]+$/i))) {
+        merchantName = line;
       }
     }
     
-    const merchantMatch = line.match(/^([А-Яа-яA-Za-z\s]+?)\s+([\d.,]+\s*(?:лв|BGN|EUR|€|\$))/i);
-    if (merchantMatch) {
-      const merchant = merchantMatch[1].trim();
-      const amount = parseFloat(merchantMatch[2].replace(/[^\d.,]/g, '').replace(',', '.'));
-      if (merchant.length > 2 && amount > 0) {
-        items.push({ description: merchant, amount });
+    const totalKeywords = ['общо', 'total', 'сума', 'всичко', 'сума за плащане', 'amount', 'sum'];
+    const hasTotalKeyword = totalKeywords.some(keyword => line.toLowerCase().includes(keyword));
+    
+    if (hasTotalKeyword) {
+      const euroMatches = line.match(/(?:[\d.,]+)\s*(?:EUR|€)|(?:(?:€|EUR)\s*[\d.,]+)/gi);
+      if (euroMatches && euroMatches.length > 0) {
+        const amountStr = euroMatches[euroMatches.length - 1].replace(/[^\d.,]/g, '').replace(',', '.');
+        const amount = parseFloat(amountStr);
+        if (!isNaN(amount) && amount > 0) {
+          totalAmount = amount;
+        }
+      }
+    }
+    
+    const euroMatches = line.match(/(?:[\d.,]+)\s*(?:EUR|€)|(?:(?:€|EUR)\s*[\d.,]+)/gi);
+    if (euroMatches && !hasTotalKeyword) {
+      for (const amountMatch of euroMatches) {
+        const amountStr = amountMatch.replace(/[^\d.,]/g, '').replace(',', '.');
+        const amount = parseFloat(amountStr);
+        if (!isNaN(amount) && amount > 0 && amount < 10000) {
+          if (!totalAmount || amount > totalAmount) {
+            totalAmount = amount;
+          }
+        }
       }
     }
   }
   
-  if (items.length === 0 && totalAmount) {
-    const firstLine = lines.find(l => l.length > 5 && !l.match(amountPattern));
-    if (firstLine) {
-      items.push({ description: firstLine.substring(0, 50), amount: totalAmount });
+  if (!totalAmount || totalAmount <= 0) {
+    const euroPattern = /(?:€|EUR)\s*(\d{1,2}[.,]\d{2,4})/gi;
+    const euroMatches = text.match(euroPattern);
+    if (euroMatches) {
+      const validAmounts = [];
+      for (const match of euroMatches) {
+        const numStr = match.replace(/[^\d.,]/g, '').replace(',', '.');
+        const num = parseFloat(numStr);
+        if (!isNaN(num) && num > 0.1 && num < 10000) {
+          validAmounts.push(num);
+        }
+      }
+      if (validAmounts.length > 0) {
+        validAmounts.sort((a, b) => b - a);
+        totalAmount = validAmounts[0];
+      }
     }
+  }
+  
+  if (totalAmount && totalAmount > 0) {
+    
+    let description = merchantName;
+    
+    if (!description) {
+      for (const line of lines) {
+        const lineLower = line.toLowerCase();
+        if (lineLower.match(/domino|pizza|ресторант|restaurant|cafe|кафе|магазин|supermarket|billa|fantastico|lidl|kaufland|merchant|store|shop/i)) {
+          description = line;
+          break;
+        }
+      }
+    }
+    
+    if (!description) {
+      description = lines.find(l => {
+        const len = l.length;
+        return len > 3 && len < 100 && !l.match(amountPattern) && !l.match(/^[\d.,\s€$£лвBGNUSDEUR]+$/i) && !l.toLowerCase().match(/общо|total|сума|date|дата|час|time|address|адрес|тел|phone/i);
+      }) || 'Бележка';
+    }
+    
+    items.push({ description: description.substring(0, 100), amount: totalAmount });
+  }
+  
+  if (items.length === 0 && totalAmount && totalAmount > 0) {
+    items.push({ description: merchantName || 'Бележка', amount: totalAmount });
   }
   
   return {
     date: foundDate,
-    items: items.length > 0 ? items : [{ description: lines[0] || 'Бележка', amount: totalAmount || 0 }],
+    items: items.length > 0 ? items : [{ description: merchantName || lines.find(l => l.length > 2) || 'Бележка', amount: totalAmount || 0 }],
     total: totalAmount
   };
 };
 
 const extractTextFromImage = async (imagePath) => {
   try {
+    if (!fs.existsSync(imagePath)) {
+      throw new Error('Image file does not exist');
+    }
+    
     const { data: { text } } = await Tesseract.recognize(imagePath, 'eng+bul', {
-      logger: () => {}
+      logger: (m) => {
+        if (m.status === 'recognizing text') {
+          console.log(`OCR progress: ${Math.round(m.progress * 100)}%`);
+        }
+      },
+      tessedit_pageseg_mode: '6',
+      tessedit_ocr_engine_mode: '1'
     });
+    
+    if (!text || text.trim().length < 3) {
+      throw new Error('OCR extracted no text from image');
+    }
+    
     return text;
   } catch (error) {
+    if (error.message && (error.message.includes('OCR') || error.message.includes('extracted'))) {
+      throw error;
+    }
     throw new Error(`OCR failed: ${error.message}`);
   }
 };
 
 const scanReceipt = async (userId, receiptText, receiptFile) => {
+  let fileToDelete = null;
+  
   try {
     let text = receiptText || '';
     
     if (receiptFile) {
+      fileToDelete = receiptFile.path;
       const fileExt = path.extname(receiptFile.originalname || receiptFile.path).toLowerCase();
       const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp'];
       
       if (imageExtensions.includes(fileExt)) {
-        text = await extractTextFromImage(receiptFile.path);
+        try {
+          if (!fs.existsSync(receiptFile.path)) {
+            return {
+              success: false,
+              error: 'Файлът не съществува'
+            };
+          }
+          
+          console.log('Starting OCR for file:', receiptFile.path);
+          text = await extractTextFromImage(receiptFile.path);
+          console.log('OCR completed, extracted text length:', text.length);
+        } catch (ocrError) {
+          console.error('OCR error:', ocrError);
+          return {
+            success: false,
+            error: `OCR грешка: ${ocrError.message}`
+          };
+        }
       } else {
-        const fileContent = fs.readFileSync(receiptFile.path, 'utf8');
-        text = fileContent;
+        try {
+          if (!fs.existsSync(receiptFile.path)) {
+            return {
+              success: false,
+              error: 'Файлът не съществува'
+            };
+          }
+          const fileContent = fs.readFileSync(receiptFile.path, 'utf8');
+          text = fileContent;
+        } catch (readError) {
+          console.error('File read error:', readError);
+          return {
+            success: false,
+            error: `Грешка при четене на файл: ${readError.message}`
+          };
+        }
       }
-      fs.unlinkSync(receiptFile.path);
     }
     
-    if (!text || text.trim().length < 5) {
+    if (!text || text.trim().length < 3) {
       return {
         success: false,
-        error: 'Receipt text is too short or empty'
+        error: 'Текстът от бележката е твърде кратък или празен. Моля проверете снимката.'
       };
     }
     
     const parsed = parseReceiptText(text);
     
-    if (parsed.items.length === 0) {
+    if (parsed.items.length === 0 || (parsed.items.length === 1 && parsed.items[0].amount === 0)) {
+      const debugInfo = text.length > 200 ? text.substring(0, 200) + '...' : text;
       return {
         success: false,
-        error: 'Could not extract items from receipt'
+        error: `Не можах да извлека сума от бележката. Извлечен текст: ${debugInfo}`
       };
     }
     
@@ -113,21 +225,47 @@ const scanReceipt = async (userId, receiptText, receiptFile) => {
         continue;
       }
       
-      const categorization = await categorizeTransaction(item.description, item.amount, {
-        hfApiKey: process.env.HF_TXN_API_KEY,
-        hfModel: process.env.HF_TXN_MODEL
-      });
+      let categoryId = null;
+      let categoryName = null;
       
-      if (!categorization.success || !categorization.result) {
-        failed++;
-        results.push({
-          description: item.description,
-          amount: item.amount,
-          category: null,
-          status: 'failed',
-          error: categorization.error || 'Categorization failed'
+      try {
+        const categorization = await categorizeTransaction(item.description, item.amount, {
+          hfApiKey: process.env.HF_TXN_API_KEY,
+          hfModel: process.env.HF_TXN_MODEL,
+          transactionType: 'expense'
         });
-        continue;
+        
+        if (categorization.success && categorization.result && categorization.result.categoryId) {
+          const { FinancialCategory } = require('../../models');
+          const foundCategory = await FinancialCategory.findByPk(categorization.result.categoryId);
+          if (foundCategory && foundCategory.type === 'expense') {
+            categoryId = categorization.result.categoryId;
+            categoryName = categorization.result.categoryName;
+          }
+        }
+      } catch (catError) {
+        console.error('Categorization error:', catError);
+      }
+      
+      if (!categoryId) {
+        const { FinancialCategory } = require('../../models');
+        const defaultCategory = await FinancialCategory.findOne({
+          where: { name: 'Други разходи', type: 'expense', is_active: true }
+        });
+        if (defaultCategory) {
+          categoryId = defaultCategory.id;
+          categoryName = defaultCategory.name;
+        } else {
+          const newCategory = await FinancialCategory.create({
+            name: 'Други разходи',
+            type: 'expense',
+            icon: null,
+            color: null,
+            is_active: true
+          });
+          categoryId = newCategory.id;
+          categoryName = newCategory.name;
+        }
       }
       
       const transactionDate = parsed.date 
@@ -135,11 +273,11 @@ const scanReceipt = async (userId, receiptText, receiptFile) => {
         : new Date();
       
       const transactionData = {
-        category_id: categorization.result.categoryId,
-        amount: item.amount,
+        category_id: categoryId,
+        amount: -Math.abs(item.amount),
         description: item.description,
         transaction_date: transactionDate.toISOString().substring(0, 10),
-        type: categorization.result.type,
+        type: 'expense',
         source: 'Receipt Scan'
       };
       
@@ -150,7 +288,7 @@ const scanReceipt = async (userId, receiptText, receiptFile) => {
         results.push({
           description: item.description,
           amount: item.amount,
-          category: categorization.result.categoryName,
+          category: categoryName,
           status: 'imported'
         });
       } else {
@@ -158,10 +296,17 @@ const scanReceipt = async (userId, receiptText, receiptFile) => {
         results.push({
           description: item.description,
           amount: item.amount,
-          category: categorization.result.categoryName,
+          category: categoryName,
           status: 'failed',
           error: createResult.error
         });
+      }
+    }
+    
+    if (fileToDelete && fs.existsSync(fileToDelete)) {
+      try {
+        fs.unlinkSync(fileToDelete);
+      } catch (unlinkError) {
       }
     }
     
@@ -173,9 +318,16 @@ const scanReceipt = async (userId, receiptText, receiptFile) => {
     };
     
   } catch (error) {
+    if (fileToDelete && fs.existsSync(fileToDelete)) {
+      try {
+        fs.unlinkSync(fileToDelete);
+      } catch (unlinkError) {
+      }
+    }
+    console.error('Receipt scan service error:', error);
     return {
       success: false,
-      error: error.message
+      error: error.message || 'Неизвестна грешка при сканиране на бележка'
     };
   }
 };
