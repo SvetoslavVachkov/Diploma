@@ -37,6 +37,8 @@ const Transactions = () => {
   const [receiptResult, setReceiptResult] = useState(null);
   const [receiptLoading, setReceiptLoading] = useState(false);
   const [receiptError, setReceiptError] = useState('');
+  const [editingCategory, setEditingCategory] = useState(null);
+  const [newCategoryName, setNewCategoryName] = useState('');
   const [formData, setFormData] = useState({
     description: '',
     amount: '',
@@ -52,14 +54,47 @@ const Transactions = () => {
   const fetchData = async () => {
     try {
       setLoading(true);
-      const [txRes, catRes] = await Promise.all([
-        api.get('/financial/transactions'),
-        api.get('/financial/categories')
-      ]);
-      const transactionsData = Array.isArray(txRes.data.data)
-        ? txRes.data.data
-        : (txRes.data.data?.transactions || txRes.data.data || []);
-      setTransactions(transactionsData);
+
+      const catPromise = api.get('/financial/categories');
+
+      const allTx = [];
+      const seenIds = new Set();
+
+      const limit = 100;
+      let page = 1;
+      let totalPages = 1;
+
+      while (page <= totalPages) {
+        const txRes = await api.get(`/financial/transactions?limit=${limit}&page=${page}`);
+        const txPayload = txRes.data?.data;
+        const pageTx = txPayload?.transactions || [];
+        const pagination = txPayload?.pagination;
+
+        if (pagination?.pages) {
+          totalPages = pagination.pages;
+        } else if (pageTx.length < limit) {
+          totalPages = page;
+        }
+
+        for (const t of pageTx) {
+          const id = t?.id;
+          if (id && seenIds.has(id)) continue;
+          if (id) seenIds.add(id);
+          allTx.push(t);
+        }
+
+        page++;
+      }
+
+      const catRes = await catPromise;
+
+      const sortedTransactions = [...allTx].sort((a, b) => {
+        const dateA = new Date(a.transaction_date);
+        const dateB = new Date(b.transaction_date);
+        return dateB - dateA;
+      });
+
+      setTransactions(sortedTransactions);
       setCategories(catRes.data.data || []);
     } catch (error) {
       setTransactions([]);
@@ -90,18 +125,77 @@ const Transactions = () => {
     }
   };
 
-  const handleDelete = async (id) => {
+  const handleDelete = async (id, e) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    
     if (window.confirm('Сигурни ли сте?')) {
       try {
+        const scrollPosition = window.scrollY || window.pageYOffset;
+        
         setLoading(true);
         await api.delete(`/financial/transactions/${id}`);
         await fetchData();
+        
+        setTimeout(() => {
+          window.scrollTo(0, scrollPosition);
+        }, 100);
       } catch (error) {
         alert('Грешка при изтриване на транзакция: ' + (error.response?.data?.message || 'Неизвестна грешка'));
       } finally {
         setLoading(false);
       }
     }
+  };
+
+  const handleEditCategory = (tx) => {
+    setEditingCategory(tx.id);
+    setNewCategoryName('');
+  };
+
+  const handleSaveCategory = async (tx) => {
+    try {
+      setLoading(true);
+      const txCategories = categories.filter(c => c.type === tx.type);
+      let categoryId = null;
+      
+      if (newCategoryName.trim()) {
+        const existingCategory = txCategories.find(c => c.name === newCategoryName.trim());
+        if (existingCategory) {
+          categoryId = existingCategory.id;
+        } else {
+          const createRes = await api.post('/financial/categories', {
+            name: newCategoryName.trim(),
+            type: tx.type
+          });
+          if (createRes.data.status === 'success' && createRes.data.data) {
+            categoryId = createRes.data.data.id;
+            await fetchData();
+          }
+        }
+      }
+      
+      if (categoryId) {
+        await api.put(`/financial/transactions/${tx.id}`, {
+          category_id: categoryId
+        });
+        await fetchData();
+      }
+      
+      setEditingCategory(null);
+      setNewCategoryName('');
+    } catch (error) {
+      alert('Грешка при промяна на категория: ' + (error.response?.data?.message || 'Неизвестна грешка'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCancelEdit = () => {
+    setEditingCategory(null);
+    setNewCategoryName('');
   };
 
   const handleCSVUpload = async (e) => {
@@ -116,14 +210,192 @@ const Transactions = () => {
       const response = await api.post('/financial/transactions/import-csv', formData, {
         headers: {
           'Content-Type': 'multipart/form-data'
-        }
+        },
+        timeout: 180000
       });
       
       if (response.data && response.data.data) {
         const results = response.data.data.results || response.data.data;
         const imported = results.imported || 0;
         const total = results.total || 0;
-        alert(`Импортирани ${imported} от ${total} транзакции`);
+        const failed = results.failed || 0;
+        const skipped = results.skipped || 0;
+        const errors = results.errors || [];
+        const missingTransactions = results.missingTransactions || [];
+        const expectedTotal = results.expectedTotal;
+        
+        let message = `Импортирани ${imported} от ${total} транзакции`;
+        
+        if (expectedTotal && expectedTotal > total) {
+          message += `\n\nОчаквани са ${expectedTotal} транзакции, но са намерени само ${total}. Липсват ${expectedTotal - total} транзакции.`;
+        }
+        
+        if (failed > 0) {
+          message += `\n\nНеуспешни: ${failed}`;
+        }
+        
+        if (skipped > 0) {
+          message += `\n\nПропуснати: ${skipped}`;
+        }
+        
+        if (missingTransactions.length > 0) {
+          message += '\n\nПричини за липсващи транзакции:';
+          missingTransactions.forEach((missing, idx) => {
+            message += `\n${idx + 1}. ${missing.reason}`;
+            if (missing.date) {
+              message += `\n   Дата: ${missing.date}`;
+            }
+            if (missing.description) {
+              message += `\n   Описание: ${missing.description}`;
+            }
+            if (missing.amount) {
+              message += `\n   Сума: ${missing.amount}`;
+            }
+          });
+        }
+        
+        if (errors.length > 0 && errors.length <= 10) {
+          message += '\n\nГрешки при импортиране:';
+          errors.forEach((err, idx) => {
+            message += `\n${idx + 1}. Ред ${err.row}: ${err.error || 'Неизвестна грешка'}`;
+            if (err.description) {
+              message += `\n   Описание: ${err.description}`;
+            }
+            if (err.date) {
+              message += `\n   Дата: ${err.date}`;
+            }
+            if (err.amount) {
+              message += `\n   Сума: ${err.amount}`;
+            }
+          });
+        } else if (errors.length > 10) {
+          message += `\n\nИма ${errors.length} грешки при импортиране. Първите 10:`;
+          errors.slice(0, 10).forEach((err, idx) => {
+            message += `\n${idx + 1}. Ред ${err.row}: ${err.error || 'Неизвестна грешка'}`;
+            if (err.description) {
+              message += `\n   Описание: ${err.description}`;
+            }
+            if (err.date) {
+              message += `\n   Дата: ${err.date}`;
+            }
+            if (err.amount) {
+              message += `\n   Сума: ${err.amount}`;
+            }
+          });
+        }
+        
+        const showDetailedPopup = () => {
+          const popup = document.createElement('div');
+          popup.style.cssText = `
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: white;
+            padding: 24px;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+            z-index: 10000;
+            max-width: 600px;
+            max-height: 80vh;
+            overflow-y: auto;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+          `;
+          
+          const title = document.createElement('h2');
+          title.textContent = 'Резултати от импортиране';
+          title.style.cssText = 'margin: 0 0 16px 0; font-size: 20px; font-weight: 600; color: #1f2937;';
+          popup.appendChild(title);
+          
+          const content = document.createElement('div');
+          content.style.cssText = 'margin-bottom: 16px; white-space: pre-wrap; font-size: 14px; line-height: 1.6; color: #374151;';
+          content.textContent = message;
+          popup.appendChild(content);
+          
+          const buttonContainer = document.createElement('div');
+          buttonContainer.style.cssText = 'display: flex; gap: 12px; justify-content: flex-end; margin-top: 20px;';
+          
+          const copyButton = document.createElement('button');
+          copyButton.textContent = 'Копирай текста';
+          copyButton.style.cssText = `
+            padding: 10px 20px;
+            background: #3b82f6;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: background 0.2s;
+          `;
+          copyButton.onmouseover = () => copyButton.style.background = '#2563eb';
+          copyButton.onmouseout = () => copyButton.style.background = '#3b82f6';
+          copyButton.onclick = () => {
+            navigator.clipboard.writeText(message).then(() => {
+              copyButton.textContent = 'Копирано!';
+              setTimeout(() => {
+                copyButton.textContent = 'Копирай текста';
+              }, 2000);
+            }).catch(() => {
+              const textarea = document.createElement('textarea');
+              textarea.value = message;
+              textarea.style.position = 'fixed';
+              textarea.style.opacity = '0';
+              document.body.appendChild(textarea);
+              textarea.select();
+              document.execCommand('copy');
+              document.body.removeChild(textarea);
+              copyButton.textContent = 'Копирано!';
+              setTimeout(() => {
+                copyButton.textContent = 'Копирай текста';
+              }, 2000);
+            });
+          };
+          buttonContainer.appendChild(copyButton);
+          
+          const closeButton = document.createElement('button');
+          closeButton.textContent = 'Затвори';
+          closeButton.style.cssText = `
+            padding: 10px 20px;
+            background: #6b7280;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: background 0.2s;
+          `;
+          closeButton.onmouseover = () => closeButton.style.background = '#4b5563';
+          closeButton.onmouseout = () => closeButton.style.background = '#6b7280';
+          closeButton.onclick = () => {
+            document.body.removeChild(popup);
+            document.body.removeChild(overlay);
+          };
+          buttonContainer.appendChild(closeButton);
+          
+          popup.appendChild(buttonContainer);
+          
+          const overlay = document.createElement('div');
+          overlay.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 9999;
+          `;
+          overlay.onclick = () => {
+            document.body.removeChild(popup);
+            document.body.removeChild(overlay);
+          };
+          
+          document.body.appendChild(overlay);
+          document.body.appendChild(popup);
+        };
+        
+        showDetailedPopup();
       } else {
         alert('CSV файлът е импортиран успешно!');
       }
@@ -158,14 +430,30 @@ const Transactions = () => {
       const response = await api.post('/financial/receipts/scan', form, {
         headers: {
           'Content-Type': 'multipart/form-data'
-        }
+        },
+        timeout: 180000
       });
-      setReceiptResult(response.data.data);
-      fetchData();
-      setReceiptText('');
-      setReceiptFile(null);
+      
+      if (response.data && response.data.status === 'success') {
+        setReceiptResult(response.data.data);
+        await fetchData();
+        setReceiptText('');
+        setReceiptFile(null);
+        
+        const imported = response.data.data?.imported || 0;
+        const total = response.data.data?.total || 0;
+        if (imported > 0) {
+          alert(`Успешно импортирани ${imported} от ${total} транзакции от бележката!`);
+        }
+      } else {
+        setReceiptError(response.data?.message || 'Грешка при сканиране на бележка.');
+      }
     } catch (error) {
-      setReceiptError(error.response?.data?.message || 'Грешка при сканиране на бележка.');
+      console.error('Receipt scan error:', error);
+      const errorMessage = error.response?.data?.message || error.message || 'Грешка при сканиране на бележка.';
+      setReceiptError(errorMessage);
+      
+      alert(`Грешка: ${errorMessage}`);
     } finally {
       setReceiptLoading(false);
     }
@@ -303,6 +591,7 @@ const Transactions = () => {
 
   return (
     <div>
+      <style>{animationStyles}</style>
       <div style={styles.header}>
         <h1 style={styles.title}>Транзакции</h1>
         <div style={styles.headerActions}>
@@ -325,10 +614,49 @@ const Transactions = () => {
       </div>
 
       {!loading && transactions.length > 0 && (
-        <div style={styles.chartsGrid}>
+        <>
+          <div style={styles.summaryCards}>
+            <div style={styles.summaryCard}>
+              <div style={styles.summaryIcon}>💰</div>
+              <div style={styles.summaryContent}>
+                <div style={styles.summaryLabel}>Общ баланс</div>
+                <div style={{...styles.summaryValue, color: balance >= 0 ? '#10b981' : '#ef4444'}}>
+                  {balance >= 0 ? '+' : ''}{balance.toFixed(2)} €
+                </div>
+              </div>
+            </div>
+            <div style={styles.summaryCard}>
+              <div style={{...styles.summaryIcon, background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)'}}>📈</div>
+              <div style={styles.summaryContent}>
+                <div style={styles.summaryLabel}>Приходи</div>
+                <div style={{...styles.summaryValue, color: '#10b981'}}>
+                  +{totalIncome.toFixed(2)} €
+                </div>
+              </div>
+            </div>
+            <div style={styles.summaryCard}>
+              <div style={{...styles.summaryIcon, background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)'}}>📉</div>
+              <div style={styles.summaryContent}>
+                <div style={styles.summaryLabel}>Разходи</div>
+                <div style={{...styles.summaryValue, color: '#ef4444'}}>
+                  -{totalExpense.toFixed(2)} €
+                </div>
+              </div>
+            </div>
+            <div style={styles.summaryCard}>
+              <div style={{...styles.summaryIcon, background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'}}>📋</div>
+              <div style={styles.summaryContent}>
+                <div style={styles.summaryLabel}>Транзакции</div>
+                <div style={{...styles.summaryValue, color: '#667eea'}}>
+                  {transactions.length}
+                </div>
+              </div>
+            </div>
+          </div>
+          <div style={styles.chartsGrid}>
           {Object.keys(dailyData).length > 0 && (
-            <div style={styles.chartCard}>
-              <h2 style={styles.chartTitle}>Тренд за последните 30 дни</h2>
+            <div style={styles.chartCard} className="chart-card">
+              <h2 style={styles.chartTitle}>📈 Тренд за последните 30 дни</h2>
               <div style={styles.chartContainer}>
                 <Line data={lineChartData} options={chartOptions} />
               </div>
@@ -336,8 +664,8 @@ const Transactions = () => {
           )}
 
           {topCategories.length > 0 && (
-            <div style={styles.chartCard}>
-              <h2 style={styles.chartTitle}>Разпределение по категории</h2>
+            <div style={styles.chartCard} className="chart-card">
+              <h2 style={styles.chartTitle}>🎯 Разпределение по категории</h2>
               <div style={styles.chartContainer}>
                 <Doughnut data={doughnutData} options={chartOptions} />
               </div>
@@ -353,7 +681,7 @@ const Transactions = () => {
                       />
                       <span style={styles.categoryName}>{name}</span>
                     </div>
-                    <span style={styles.categoryAmount}>{amount.toFixed(2)} лв</span>
+                    <span style={styles.categoryAmount}>{Math.abs(amount).toFixed(2)} €</span>
                   </div>
                 ))}
               </div>
@@ -361,14 +689,15 @@ const Transactions = () => {
           )}
 
           {sortedMonths.length > 0 && (
-            <div style={styles.chartCard}>
-              <h2 style={styles.chartTitle}>Месечно сравнение</h2>
+            <div style={styles.chartCard} className="chart-card">
+              <h2 style={styles.chartTitle}>📊 Месечно сравнение</h2>
               <div style={styles.chartContainer}>
                 <Bar data={barChartData} options={chartOptions} />
               </div>
             </div>
           )}
         </div>
+        </>
       )}
 
       {showModal && (
@@ -498,15 +827,63 @@ const Transactions = () => {
           </thead>
           <tbody>
             {transactions.length > 0 ? (
-              transactions.map((tx) => {
+              transactions.map((tx, index) => {
                 const category = categories.find((c) => c.id === tx.category_id);
                 return (
-                  <tr key={tx.id} style={styles.tr}>
+                  <tr key={tx.id} style={{...styles.tr, animationDelay: `${index * 0.03}s`}}>
                     <td style={styles.td}>
                       {new Date(tx.transaction_date).toLocaleDateString('bg-BG')}
                     </td>
                     <td style={styles.td}>{tx.description}</td>
-                    <td style={styles.td}>{category?.name || '-'}</td>
+                    <td style={styles.td}>
+                      {editingCategory === tx.id ? (
+                        <div style={styles.editCategoryContainer}>
+                          <select
+                            value={newCategoryName}
+                            onChange={(e) => {
+                              if (e.target.value === '__new__') {
+                                const input = prompt('Въведете име на нова категория:');
+                                if (input && input.trim()) {
+                                  setNewCategoryName(input.trim());
+                                }
+                              } else {
+                                setNewCategoryName(e.target.value);
+                              }
+                            }}
+                            style={styles.categorySelect}
+                          >
+                            <option value="">Избери категория</option>
+                            {categories.filter(c => c.type === tx.type).map(cat => (
+                              <option key={cat.id} value={cat.name}>{cat.name}</option>
+                            ))}
+                            <option value="__new__">+ Нова категория</option>
+                          </select>
+                          <button
+                            onClick={() => handleSaveCategory(tx)}
+                            style={styles.saveButton}
+                          >
+                            Запази
+                          </button>
+                          <button
+                            onClick={handleCancelEdit}
+                            style={styles.cancelEditButton}
+                          >
+                            Отказ
+                          </button>
+                        </div>
+                      ) : (
+                        <div style={styles.categoryCell}>
+                          <span>{category?.name || 'Други ' + (tx.type === 'income' ? 'приходи' : 'разходи')}</span>
+                          <button
+                            onClick={() => handleEditCategory(tx)}
+                            style={styles.editButton}
+                            title="Редактирай категория"
+                          >
+                            ✏️
+                          </button>
+                        </div>
+                      )}
+                    </td>
                     <td style={styles.td}>
                       <span
                         style={{
@@ -526,11 +903,12 @@ const Transactions = () => {
                       }}
                     >
                       {tx.type === 'income' ? '+' : '-'}
-                      {parseFloat(tx.amount).toFixed(2)} лв
+                      {parseFloat(tx.amount).toFixed(2)} €
                     </td>
                     <td style={styles.td}>
                       <button
-                        onClick={() => handleDelete(tx.id)}
+                        type="button"
+                        onClick={(e) => handleDelete(tx.id, e)}
                         style={styles.deleteButton}
                       >
                         Изтрий
@@ -559,24 +937,39 @@ const styles = {
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: '30px',
+    marginBottom: '40px',
     flexWrap: 'wrap',
-    gap: '12px'
+    gap: '16px',
+    animation: 'fadeInDown 0.6s ease-out',
+    padding: '20px 0',
+    position: 'relative',
+    zIndex: 10
   },
   title: {
-    fontSize: '32px',
-    fontWeight: 'bold',
-    color: 'white'
+    fontSize: '36px',
+    fontWeight: '700',
+    color: '#ffffff',
+    textShadow: '0 2px 8px rgba(0, 0, 0, 0.3), 0 0 20px rgba(102, 126, 234, 0.5)',
+    margin: 0,
+    padding: 0,
+    lineHeight: '1.2'
   },
   addButton: {
-    padding: '12px 24px',
+    padding: '14px 28px',
     background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
     color: 'white',
     border: 'none',
-    borderRadius: '8px',
+    borderRadius: '12px',
     fontSize: '16px',
     fontWeight: '600',
-    cursor: 'pointer'
+    cursor: 'pointer',
+    boxShadow: '0 4px 15px rgba(102, 126, 234, 0.4)',
+    transition: 'all 0.3s ease',
+    transform: 'translateY(0)',
+    ':hover': {
+      transform: 'translateY(-2px)',
+      boxShadow: '0 6px 20px rgba(102, 126, 234, 0.5)'
+    }
   },
   modalOverlay: {
     position: 'fixed',
@@ -584,18 +977,23 @@ const styles = {
     left: 0,
     right: 0,
     bottom: 0,
-    background: 'rgba(0,0,0,0.5)',
+    background: 'rgba(0,0,0,0.6)',
     display: 'flex',
     justifyContent: 'center',
     alignItems: 'center',
-    zIndex: 1000
+    zIndex: 1000,
+    animation: 'fadeIn 0.3s ease-out',
+    backdropFilter: 'blur(4px)'
   },
   modal: {
     background: 'white',
-    borderRadius: '16px',
-    padding: '30px',
+    borderRadius: '20px',
+    padding: '40px',
     width: '90%',
-    maxWidth: '500px'
+    maxWidth: '550px',
+    boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
+    animation: 'slideUp 0.4s ease-out',
+    transform: 'translateY(0)'
   },
   modalTitle: {
     fontSize: '24px',
@@ -609,18 +1007,30 @@ const styles = {
     gap: '16px'
   },
   input: {
-    padding: '12px',
+    padding: '14px 16px',
     border: '2px solid #e0e0e0',
-    borderRadius: '8px',
+    borderRadius: '12px',
     fontSize: '16px',
-    outline: 'none'
+    outline: 'none',
+    transition: 'all 0.3s ease',
+    ':focus': {
+      borderColor: '#667eea',
+      boxShadow: '0 0 0 3px rgba(102, 126, 234, 0.1)'
+    }
   },
   select: {
-    padding: '12px',
+    padding: '14px 16px',
     border: '2px solid #e0e0e0',
-    borderRadius: '8px',
+    borderRadius: '12px',
     fontSize: '16px',
-    outline: 'none'
+    outline: 'none',
+    transition: 'all 0.3s ease',
+    background: 'white',
+    cursor: 'pointer',
+    ':focus': {
+      borderColor: '#667eea',
+      boxShadow: '0 0 0 3px rgba(102, 126, 234, 0.1)'
+    }
   },
   modalActions: {
     display: 'flex',
@@ -629,30 +1039,49 @@ const styles = {
   },
   cancelButton: {
     flex: 1,
-    padding: '12px',
+    padding: '14px',
     background: '#f5f5f5',
     border: 'none',
-    borderRadius: '8px',
+    borderRadius: '12px',
     fontSize: '16px',
-    cursor: 'pointer'
+    cursor: 'pointer',
+    transition: 'all 0.3s ease',
+    fontWeight: '500',
+    ':hover': {
+      background: '#e5e5e5',
+      transform: 'translateY(-1px)'
+    }
   },
   submitButton: {
     flex: 1,
-    padding: '12px',
+    padding: '14px',
     background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
     color: 'white',
     border: 'none',
-    borderRadius: '8px',
+    borderRadius: '12px',
     fontSize: '16px',
     fontWeight: '600',
-    cursor: 'pointer'
+    cursor: 'pointer',
+    transition: 'all 0.3s ease',
+    boxShadow: '0 4px 15px rgba(102, 126, 234, 0.4)',
+    ':hover': {
+      transform: 'translateY(-2px)',
+      boxShadow: '0 6px 20px rgba(102, 126, 234, 0.5)'
+    },
+    ':disabled': {
+      opacity: 0.6,
+      cursor: 'not-allowed',
+      transform: 'none'
+    }
   },
   tableContainer: {
     background: 'white',
-    borderRadius: '16px',
-    padding: '20px',
-    boxShadow: '0 4px 20px rgba(0,0,0,0.1)',
-    overflowX: 'auto'
+    borderRadius: '20px',
+    padding: '30px',
+    boxShadow: '0 8px 30px rgba(0,0,0,0.12)',
+    overflowX: 'auto',
+    animation: 'fadeInUp 0.6s ease-out',
+    marginTop: '30px'
   },
   table: {
     width: '100%',
@@ -660,28 +1089,97 @@ const styles = {
   },
   th: {
     textAlign: 'left',
-    padding: '12px',
-    borderBottom: '2px solid #e0e0e0',
-    color: '#666',
-    fontWeight: '600'
+    padding: '16px',
+    borderBottom: '3px solid #e5e7eb',
+    color: '#374151',
+    fontWeight: '700',
+    fontSize: '14px',
+    textTransform: 'uppercase',
+    letterSpacing: '0.5px',
+    background: 'linear-gradient(135deg, #f9fafb 0%, #f3f4f6 100%)'
   },
   tr: {
-    borderBottom: '1px solid #f0f0f0'
+    borderBottom: '1px solid #e5e7eb',
+    transition: 'all 0.2s ease',
+    animation: 'fadeInRow 0.4s ease-out',
+    background: 'white',
+    ':hover': {
+      background: 'linear-gradient(90deg, #f9fafb 0%, #ffffff 100%)',
+      transform: 'translateX(2px)',
+      boxShadow: '0 2px 8px rgba(0,0,0,0.05)'
+    }
   },
   td: {
-    padding: '12px',
-    color: '#333'
+    padding: '16px',
+    color: '#1f2937',
+    fontSize: '15px'
   },
   badge: {
-    padding: '4px 12px',
-    borderRadius: '12px',
-    fontSize: '14px',
-    fontWeight: '500'
+    padding: '8px 16px',
+    borderRadius: '20px',
+    fontSize: '13px',
+    fontWeight: '700',
+    display: 'inline-block',
+    boxShadow: '0 2px 6px rgba(0,0,0,0.15)',
+    transition: 'all 0.2s ease',
+    textTransform: 'uppercase',
+    letterSpacing: '0.5px'
   },
   deleteButton: {
-    padding: '6px 12px',
-    background: '#fee2e2',
+    padding: '8px 16px',
+    background: 'linear-gradient(135deg, #fee2e2 0%, #fecaca 100%)',
     color: '#991b1b',
+    border: 'none',
+    borderRadius: '8px',
+    cursor: 'pointer',
+    fontSize: '14px',
+    fontWeight: '600',
+    transition: 'all 0.2s ease',
+    boxShadow: '0 2px 4px rgba(153, 27, 27, 0.2)',
+    ':hover': {
+      transform: 'translateY(-1px)',
+      boxShadow: '0 4px 8px rgba(153, 27, 27, 0.3)'
+    }
+  },
+  categoryCell: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px'
+  },
+  editButton: {
+    padding: '4px 8px',
+    background: 'transparent',
+    border: 'none',
+    cursor: 'pointer',
+    fontSize: '14px',
+    opacity: 0.6
+  },
+  editCategoryContainer: {
+    display: 'flex',
+    gap: '8px',
+    alignItems: 'center'
+  },
+  categorySelect: {
+    padding: '6px 12px',
+    border: '2px solid #e0e0e0',
+    borderRadius: '6px',
+    fontSize: '14px',
+    outline: 'none',
+    minWidth: '150px'
+  },
+  saveButton: {
+    padding: '6px 12px',
+    background: '#10b981',
+    color: 'white',
+    border: 'none',
+    borderRadius: '6px',
+    cursor: 'pointer',
+    fontSize: '14px'
+  },
+  cancelEditButton: {
+    padding: '6px 12px',
+    background: '#f5f5f5',
+    color: '#666',
     border: 'none',
     borderRadius: '6px',
     cursor: 'pointer',
@@ -704,25 +1202,41 @@ const styles = {
     alignItems: 'center'
   },
   secondaryButton: {
-    padding: '12px 24px',
+    padding: '14px 28px',
     background: 'white',
     color: '#667eea',
     border: '2px solid #667eea',
-    borderRadius: '8px',
-    fontSize: '16px',
-    fontWeight: '600',
-    cursor: 'pointer'
-  },
-  uploadButton: {
-    padding: '12px 24px',
-    background: 'white',
-    color: '#667eea',
-    border: '2px solid #667eea',
-    borderRadius: '8px',
+    borderRadius: '12px',
     fontSize: '16px',
     fontWeight: '600',
     cursor: 'pointer',
-    display: 'inline-block'
+    transition: 'all 0.3s ease',
+    boxShadow: '0 2px 8px rgba(102, 126, 234, 0.2)',
+    ':hover': {
+      background: '#667eea',
+      color: 'white',
+      transform: 'translateY(-2px)',
+      boxShadow: '0 4px 12px rgba(102, 126, 234, 0.3)'
+    }
+  },
+  uploadButton: {
+    padding: '14px 28px',
+    background: 'white',
+    color: '#667eea',
+    border: '2px solid #667eea',
+    borderRadius: '12px',
+    fontSize: '16px',
+    fontWeight: '600',
+    cursor: 'pointer',
+    display: 'inline-block',
+    transition: 'all 0.3s ease',
+    boxShadow: '0 2px 8px rgba(102, 126, 234, 0.2)',
+    ':hover': {
+      background: '#667eea',
+      color: 'white',
+      transform: 'translateY(-2px)',
+      boxShadow: '0 4px 12px rgba(102, 126, 234, 0.3)'
+    }
   },
   errorBox: {
     background: '#fee2e2',
@@ -789,8 +1303,228 @@ const styles = {
     borderRadius: '4px',
     background: '#d1fae5',
     color: '#065f46'
+  },
+  chartsGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))',
+    gap: '24px',
+    marginBottom: '40px',
+    animation: 'fadeInUp 0.6s ease-out'
+  },
+  chartCard: {
+    background: 'linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%)',
+    borderRadius: '20px',
+    padding: '30px',
+    boxShadow: '0 8px 30px rgba(0,0,0,0.12)',
+    transition: 'all 0.3s ease',
+    border: '1px solid rgba(102, 126, 234, 0.1)',
+    animation: 'slideIn 0.5s ease-out',
+    ':hover': {
+      transform: 'translateY(-4px)',
+      boxShadow: '0 12px 40px rgba(0,0,0,0.15)'
+    }
+  },
+  chartTitle: {
+    fontSize: '22px',
+    fontWeight: '700',
+    color: '#1f2937',
+    marginBottom: '20px',
+    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+    WebkitBackgroundClip: 'text',
+    WebkitTextFillColor: 'transparent',
+    backgroundClip: 'text',
+    textShadow: 'none'
+  },
+  chartContainer: {
+    height: '300px',
+    position: 'relative',
+    animation: 'fadeIn 0.8s ease-out'
+  },
+  categoryList: {
+    marginTop: '20px',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '12px'
+  },
+  categoryItem: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: '12px 16px',
+    background: 'white',
+    borderRadius: '12px',
+    boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+    transition: 'all 0.2s ease',
+    animation: 'fadeInLeft 0.5s ease-out',
+    ':hover': {
+      transform: 'translateX(4px)',
+      boxShadow: '0 4px 12px rgba(0,0,0,0.12)'
+    }
+  },
+  categoryInfo: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '12px'
+  },
+  categoryColor: {
+    width: '12px',
+    height: '12px',
+    borderRadius: '50%',
+    boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
+  },
+  categoryName: {
+    fontSize: '14px',
+    fontWeight: '600',
+    color: '#374151'
+  },
+  categoryAmount: {
+    fontSize: '16px',
+    fontWeight: '700',
+    color: '#1f2937'
+  },
+  summaryCards: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))',
+    gap: '20px',
+    marginBottom: '40px',
+    animation: 'fadeInDown 0.6s ease-out'
+  },
+  summaryCard: {
+    background: 'linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%)',
+    borderRadius: '20px',
+    padding: '24px',
+    boxShadow: '0 8px 30px rgba(0,0,0,0.12)',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '20px',
+    transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+    border: '1px solid rgba(102, 126, 234, 0.1)',
+    animation: 'slideIn 0.5s ease-out',
+    ':hover': {
+      transform: 'translateY(-4px)',
+      boxShadow: '0 12px 40px rgba(0,0,0,0.15)'
+    }
+  },
+  summaryIcon: {
+    width: '60px',
+    height: '60px',
+    borderRadius: '16px',
+    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontSize: '28px',
+    boxShadow: '0 4px 15px rgba(102, 126, 234, 0.3)'
+  },
+  summaryContent: {
+    flex: 1
+  },
+  summaryLabel: {
+    fontSize: '14px',
+    color: '#6b7280',
+    fontWeight: '500',
+    marginBottom: '8px'
+  },
+  summaryValue: {
+    fontSize: '28px',
+    fontWeight: '700',
+    color: '#1f2937'
   }
 };
+
+const animationStyles = `
+  @keyframes fadeIn {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+  
+  @keyframes fadeInDown {
+    from {
+      opacity: 0;
+      transform: translateY(-20px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  
+  @keyframes fadeInUp {
+    from {
+      opacity: 0;
+      transform: translateY(20px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  
+  @keyframes slideUp {
+    from {
+      opacity: 0;
+      transform: translateY(30px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  
+  @keyframes slideIn {
+    from {
+      opacity: 0;
+      transform: translateX(-20px);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(0);
+    }
+  }
+  
+  @keyframes fadeInLeft {
+    from {
+      opacity: 0;
+      transform: translateX(-10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(0);
+    }
+  }
+  
+  @keyframes fadeInRow {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+  
+  button:hover {
+    transform: translateY(-2px);
+    transition: all 0.3s ease;
+  }
+  
+  button:active {
+    transform: translateY(0);
+  }
+  
+  tr:hover {
+    background: #f9fafb !important;
+    transition: all 0.2s ease;
+  }
+  
+  .chart-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 12px 40px rgba(0,0,0,0.15) !important;
+  }
+`;
 
 export default Transactions;
 
