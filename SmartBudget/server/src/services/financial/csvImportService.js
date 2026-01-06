@@ -9,27 +9,63 @@ const { FinancialCategory } = require('../../models');
 const extractTextFromPDF = async (filePath) => {
   try {
     const dataBuffer = fs.readFileSync(filePath);
-    const data = await pdfParse(dataBuffer);
-    return data.text;
+    const data = await pdfParse(dataBuffer, {
+      max: 0
+    });
+    
+    let text = data.text || '';
+    
+    if (!text || text.length === 0) {
+      throw new Error('No text extracted from PDF');
+    }
+    
+    text = text
+      .replace(/\u0000/g, '')
+      .replace(/[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F-\x9F]/g, '')
+      .replace(/\uFEFF/g, '')
+      .replace(/\u200B/g, '');
+    
+    const lines = text.split(/\r?\n/);
+    const cleanedLines = lines.map(line => {
+      let cleaned = line
+        .replace(/[^\x20-\x7E\u00A0-\u024F\u1E00-\u1EFF\u0400-\u04FF\u0100-\u017F\u0180-\u024F]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+      return cleaned;
+    }).filter(line => line.length > 0 && !line.match(/^[\s\d\-.,]+$/));
+    
+    const result = cleanedLines.join('\n');
+    
+    if (!result || result.length < 10) {
+      throw new Error('Insufficient text extracted from PDF');
+    }
+    
+    return result;
   } catch (error) {
     throw new Error(`PDF parsing failed: ${error.message}`);
   }
 };
 
 const parseBankStatementText = (text) => {
-  const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 2);
+  const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 1);
   const transactions = [];
   
-  const datePattern = /(\d{1,2}[.\/]\d{1,2}[.\/]\d{2,4})/;
-  const amountPattern = /([+-]?\s*\d+[.,]\d{2})\s*(лв|BGN|EUR|€|\$|)/i;
-  const cardPattern = /(CARD|КАРТА|PAYMENT|ПЛАЩАНЕ)/i;
+  const datePattern = /(\d{1,2}[.\/\-]\d{1,2}[.\/\-]\d{2,4})/;
+  const amountPattern = /([+-]?\s*\d{1,3}(?:\s*\d{3})*(?:[.,]\d{2})?)\s*(?:лв|BGN|EUR|€|\$|LEV|leva)?/i;
+  const cardPattern = /(CARD|КАРТА|PAYMENT|ПЛАЩАНЕ|TRANSACTION|ТРАНЗАКЦИЯ)/i;
+  const accountPattern = /(ACCOUNT|СМЕТКА|IBAN|BIC)/i;
   
   let currentDate = null;
   let currentDescription = null;
   let currentAmount = null;
+  let transactionLines = [];
   
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
+    
+    if (accountPattern.test(line) || line.match(/^Page\s+\d+/i)) {
+      continue;
+    }
     
     const dateMatch = line.match(datePattern);
     if (dateMatch) {
@@ -43,26 +79,39 @@ const parseBankStatementText = (text) => {
       currentDate = dateMatch[1];
       currentDescription = '';
       currentAmount = null;
+      transactionLines = [];
     }
     
     const amountMatch = line.match(amountPattern);
     if (amountMatch) {
-      const amountStr = amountMatch[1].replace(/\s+/g, '').replace(',', '.');
+      let amountStr = amountMatch[1].replace(/\s+/g, '').replace(',', '.');
+      if (amountStr.startsWith('+') || amountStr.startsWith('-')) {
+        amountStr = amountStr.substring(1);
+      }
       const amount = parseFloat(amountStr);
-      if (!isNaN(amount) && amount !== 0) {
-        currentAmount = Math.abs(amount);
+      if (!isNaN(amount) && amount > 0 && amount < 1000000) {
+        currentAmount = amount;
       }
     }
     
-    if (currentDate && !dateMatch && !amountMatch) {
-      const cleanLine = line.replace(amountPattern, '').replace(cardPattern, '').trim();
-      if (cleanLine.length > 2 && !cleanLine.match(/^\d+$/)) {
-        if (currentDescription) {
-          currentDescription += ' ' + cleanLine;
-        } else {
-          currentDescription = cleanLine;
-        }
+    if (currentDate) {
+      const cleanLine = line
+        .replace(amountPattern, '')
+        .replace(cardPattern, '')
+        .replace(accountPattern, '')
+        .replace(/^\d+\s*$/, '')
+        .trim();
+      
+      if (cleanLine.length > 2 && 
+          !cleanLine.match(/^[\d\s.,\-]+$/) &&
+          !cleanLine.match(/^Page\s+\d+/i) &&
+          !cleanLine.match(/^\d{4}-\d{2}-\d{2}/)) {
+        transactionLines.push(cleanLine);
       }
+    }
+    
+    if (currentDate && currentAmount !== null && transactionLines.length > 0) {
+      currentDescription = transactionLines.join(' ').substring(0, 200);
     }
   }
   
@@ -165,10 +214,29 @@ const normalizeCSVRow = (row) => {
   return normalized;
 };
 
+const cleanDescription = (text) => {
+  if (!text) return '';
+  
+  let cleaned = String(text)
+    .replace(/[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F-\x9F]/g, '')
+    .replace(/\uFEFF/g, '')
+    .replace(/\u200B/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  
+  try {
+    cleaned = Buffer.from(cleaned, 'utf8').toString('utf8');
+  } catch (e) {
+    cleaned = cleaned.replace(/[^\x20-\x7E\u00A0-\u024F\u1E00-\u1EFF\u0400-\u04FF]/g, '');
+  }
+  
+  return cleaned.substring(0, 255);
+};
+
 const extractMerchantName = (description) => {
   if (!description) return null;
   
-  const text = description.trim();
+  const text = cleanDescription(description);
   const words = text.split(/\s+/);
   
   if (words.length === 0) return null;
@@ -302,11 +370,15 @@ const importCSVTransactions = async (userId, filePath, options = {}) => {
       }
       
       let description = normalized.description || '';
+      description = cleanDescription(description);
+      
       if (!description || description.trim().length < 2) {
         description = extractMerchantName(String(normalized.amount)) || 'Без описание';
+      } else {
+        description = extractMerchantName(description) || description || 'Без описание';
       }
       
-      description = extractMerchantName(description) || description || 'Без описание';
+      description = cleanDescription(description);
       
       if (description.length < 2) {
         description = 'Без описание';
