@@ -3,3 +3,7 @@
 /SmartBudget/package-lock.json
 /SmartBudget/package.json
 /smartBudget/.env
+smartBudget/SmartBudget/uploads/
+SmartBudget/server/uploads/
+SmartBudget/bul.traineddata
+SmartBudget/eng.traineddata
