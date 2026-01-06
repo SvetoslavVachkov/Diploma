@@ -4,10 +4,11 @@ const { AICache } = require('../../models');
 const axios = require('axios');
 
 const CACHE_HOURS = 24;
+const CATEGORY_CACHE_VERSION = 'v2';
 
 const generateCacheKey = (text, type) => {
   const hash = crypto.createHash('sha256').update(`${type}:${text}`).digest('hex');
-  return `transaction_category_${hash}`;
+  return `transaction_category_${CATEGORY_CACHE_VERSION}_${hash}`;
 };
 
 const getCachedResult = async (cacheKey) => {
@@ -69,10 +70,21 @@ const classifyMerchantWithAI = async (merchantName, description, allCategories, 
   }
 
   try {
-    const prompt = `What type of business or category is "${merchantName}"? Transaction: ${description}. Categories: ${allCategories.map(c => c.name).join(', ')}.`;
+    const categoryList = allCategories.map(c => c.name).join(', ');
+    const enhancedPrompt = `Analyze this business/merchant and classify the transaction. Merchant name: "${merchantName}". Full description: "${description}". 
+    
+Consider what type of business this is (restaurant, gas station, supermarket, etc.) and classify into one of these categories: ${categoryList}.
+    
+For example:
+- If merchant contains "pizza", "domino", "restaurant" -> likely "Храна"
+- If merchant contains "lukoil", "gas", "fuel" -> likely "Гориво"  
+- If merchant contains "supermarket", "billa", "kaufland" -> likely "Храна"
+- If merchant contains "bank", "transfer" -> likely "Преводи" or "Трансфери"
+    
+Return only the category name that best matches the business type.`;
     
     const payload = {
-      inputs: prompt,
+      inputs: enhancedPrompt,
       parameters: {
         candidate_labels: allCategories.map(c => c.name),
         multi_label: false
@@ -98,15 +110,19 @@ const classifyMerchantWithAI = async (merchantName, description, allCategories, 
     const topLabel = response.data.labels[0];
     const topScore = response.data.scores[0];
 
-    if (!topLabel || !topScore || topScore < 0.25) {
+    if (!topLabel || !topScore || topScore < 0.15) {
       return null;
     }
 
-    const matched = allCategories.find(c => 
-      c.name.toLowerCase() === topLabel.toLowerCase() ||
-      topLabel.toLowerCase().includes(c.name.toLowerCase()) ||
-      c.name.toLowerCase().includes(topLabel.toLowerCase())
-    );
+    const matched = allCategories.find(c => {
+      const catLower = c.name.toLowerCase();
+      const labelLower = topLabel.toLowerCase();
+      return catLower === labelLower || 
+             labelLower.includes(catLower) || 
+             catLower.includes(labelLower) ||
+             catLower.split(' ').some(word => labelLower.includes(word)) ||
+             labelLower.split(' ').some(word => catLower.includes(word));
+    });
     
     if (!matched) {
       return null;
@@ -127,14 +143,71 @@ const classifyMerchantWithAI = async (merchantName, description, allCategories, 
   return null;
 };
 
+const generateCategoryNameFromDescription = (description) => {
+  if (!description || description.length < 2) {
+    return null;
+  }
+
+  const descLower = description.toLowerCase().trim();
+  
+  const categoryPatterns = {
+    'Гориво': ['lukoil', 'лукойл', 'omv', 'омв', 'shell', 'бензин', 'гориво', 'fuel', 'petrol', 'газ', 'газова', 'бензиностанция', 'автогара', 'автосервиз', 'petrol station', 'gas station'],
+    'Храна': ['храна', 'ресторант', 'кафе', 'супермаркет', 'лидл', 'lidl', 'кауфланд', 'kaufland', 'била', 'billa', 'фантастико', 'fantastiko', 'fantastico', 'магазин', 'magazin', 'магазини', 'хранителни', 'продукти', 'пица', 'pizza', 'пицария', 'pizzeria', 'бургер', 'burger', 'кафене', 'макдоналдс', 'mcdonalds', 'kfc', 'домино', 'domino', 'dominos', 'доминос', 'restaurant', 'cafe', 'coffee', 'food', 'grocery', 'supermarket', 'tesco', 'теско', 'carrefour', 'карефур', 'metro', 'метро', 'dm', 'дм'],
+    'Транспорт': ['транспорт', 'автобус', 'метро', 'такси', 'uber', 'bolt', 'паркинг', 'автомобил', 'кола', 'авто', 'car', 'bus', 'taxi', 'parking', 'transport', 'metro', 'subway'],
+    'Наем': ['наем', 'наема', 'квартира', 'жилище', 'ипотека', 'rent', 'apartment', 'mortgage', 'жилищен'],
+    'Комунални': ['комунални', 'ток', 'електричество', 'вода', 'телефон', 'интернет', 'телеком', 'виваком', 'vivacom', 'а1', 'a1', 'теленор', 'telenor', 'електроснабдяване', 'utility', 'electricity', 'water', 'phone', 'internet', 'electric'],
+    'Забавление': ['забавление', 'кино', 'театър', 'концерт', 'клуб', 'бар', 'алкохол', 'билет', 'игра', 'игри', 'entertainment', 'cinema', 'theater', 'concert', 'club', 'bar', 'alcohol', 'ticket', 'game', 'games'],
+    'Здраве': ['здраве', 'лекар', 'аптека', 'болница', 'лекарство', 'стоматолог', 'лечение', 'медицина', 'фармация', 'health', 'doctor', 'pharmacy', 'hospital', 'medicine', 'dentist', 'treatment', 'medical'],
+    'Образование': ['образование', 'училище', 'университет', 'курс', 'обучение', 'книга', 'учебник', 'education', 'school', 'university', 'course', 'book', 'books'],
+    'Обувки и дрехи': ['дрехи', 'обувки', 'мода', 'ризи', 'панталони', 'облекло', 'обувка', 'clothes', 'shoes', 'fashion', 'shirt', 'pants', 'clothing', 'apparel'],
+    'Техника': ['техника', 'компютър', 'телефон', 'таблет', 'телевизор', 'електроника', 'софтуер', 'хардуер', 'tech', 'computer', 'phone', 'tablet', 'tv', 'electronics', 'software', 'hardware'],
+    'Фитнес': ['фитнес', 'спорт', 'гимнастика', 'тренировка', 'fitness', 'gym', 'sport', 'sports', 'workout', 'exercise'],
+    'Банкови такси': ['такси', 'комисионна', 'fee', 'bank fee', 'service fee', 'комисионна', 'банкова такса'],
+    'Преводи': ['превод', 'exchange', 'конвертация', 'currency exchange', 'обмяна'],
+    'Трансфери': ['transfer', 'трансфер', 'превод', 'payment transfer']
+  };
+
+  for (const [categoryName, patterns] of Object.entries(categoryPatterns)) {
+    for (const pattern of patterns) {
+      const patternLower = pattern.toLowerCase();
+      if (descLower.includes(patternLower)) {
+        return categoryName;
+      }
+      const words = descLower.split(/\s+/);
+      for (const word of words) {
+        if (word === patternLower || word.startsWith(patternLower) || patternLower.startsWith(word)) {
+          return categoryName;
+        }
+      }
+    }
+  }
+
+  return null;
+};
+
 const classifyWithHuggingFace = async (text, categories, apiKey, model) => {
   if (!apiKey || !model || categories.length === 0) {
     return null;
   }
 
   try {
+    const categoryList = categories.map(c => c.name).join(', ');
+    const enhancedPrompt = `Analyze this transaction and classify it into the most appropriate category. 
+    
+Transaction description: "${text}"
+
+Available categories: ${categoryList}
+
+Consider:
+- Business type (restaurant, gas station, supermarket, etc.)
+- Transaction context (food purchase, fuel, transfer, etc.)
+- Merchant name patterns
+
+Return only the category name that best matches.`;
+    
     const payload = {
-      inputs: text,
+      inputs: enhancedPrompt,
+      inputs: prompt,
       parameters: {
         candidate_labels: categories.map(c => c.name),
         multi_label: false
@@ -160,15 +233,19 @@ const classifyWithHuggingFace = async (text, categories, apiKey, model) => {
     const topLabel = response.data.labels[0];
     const topScore = response.data.scores[0];
 
-    if (!topLabel || !topScore || topScore < 0.3) {
+    if (!topLabel || !topScore || topScore < 0.15) {
       return null;
     }
 
-    const matched = categories.find(c => 
-      c.name.toLowerCase() === topLabel.toLowerCase() ||
-      topLabel.toLowerCase().includes(c.name.toLowerCase()) ||
-      c.name.toLowerCase().includes(topLabel.toLowerCase())
-    );
+    const matched = categories.find(c => {
+      const catLower = c.name.toLowerCase();
+      const labelLower = topLabel.toLowerCase();
+      return catLower === labelLower || 
+             labelLower.includes(catLower) || 
+             catLower.includes(labelLower) ||
+             catLower.split(' ').some(word => labelLower.includes(word)) ||
+             labelLower.split(' ').some(word => catLower.includes(word));
+    });
     
     if (!matched) {
       return null;
@@ -192,7 +269,7 @@ const classifyWithHuggingFace = async (text, categories, apiKey, model) => {
 const getCategoryKeywords = () => {
   return {
     'Гориво': ['lukoil', 'лукойл', 'omv', 'омв', 'shell', 'бензин', 'гориво', 'fuel', 'petrol', 'газ', 'газова', 'бензиностанция', 'автогара', 'автосервиз'],
-    'Храна': ['храна', 'ресторант', 'кафе', 'супермаркет', 'лидл', 'lidl', 'кауфланд', 'kaufland', 'била', 'billa', 'магазин', 'хранителни', 'продукти', 'пица', 'pizza', 'бургер', 'burger', 'кафене', 'макдоналдс', 'mcdonalds', 'kfc', 'домино', 'domino', 'ресторант', 'restaurant', 'кафене', 'cafe', 'кафе', 'coffee'],
+    'Храна': ['храна', 'ресторант', 'кафе', 'супермаркет', 'лидл', 'lidl', 'кауфланд', 'kaufland', 'била', 'billa', 'магазин', 'хранителни', 'продукти', 'пица', 'pizza', 'пицария', 'pizzeria', 'бургер', 'burger', 'кафене', 'макдоналдс', 'mcdonalds', 'kfc', 'домино', 'domino', 'dominos', 'доминос', 'ресторант', 'restaurant', 'кафене', 'cafe', 'кафе', 'coffee', 'minimart', 'mini mart', 'mini-mart'],
     'Транспорт': ['транспорт', 'автобус', 'метро', 'такси', 'uber', 'bolt', 'паркинг', 'автомобил', 'кола', 'авто', 'car', 'bus', 'taxi', 'parking'],
     'Наем': ['наем', 'наема', 'квартира', 'жилище', 'ипотека', 'rent', 'apartment', 'mortgage'],
     'Комунални': ['комунални', 'ток', 'електричество', 'вода', 'телефон', 'интернет', 'телеком', 'виваком', 'vivacom', 'а1', 'a1', 'теленор', 'telenor', 'електроснабдяване', 'utility', 'electricity', 'water', 'phone', 'internet'],
@@ -203,13 +280,16 @@ const getCategoryKeywords = () => {
     'Техника': ['техника', 'компютър', 'телефон', 'таблет', 'телевизор', 'електроника', 'софтуер', 'хардуер', 'tech', 'computer', 'phone', 'tablet', 'tv', 'electronics', 'software', 'hardware'],
     'Заплата': ['заплата', 'заплатa', 'заплат', 'зарплата', 'зарплатa', 'зарплат', 'salary', 'wage', 'pay'],
     'Бонуси': ['бонус', 'премия', 'награда', 'bonus', 'premium', 'reward'],
-    'Инвестиции': ['инвестиция', 'акции', 'облигации', 'депозит', 'банка', 'investment', 'stocks', 'bonds', 'deposit', 'bank'],
+    'Банкови такси': ['fee', 'bank fee', 'service fee', 'commission', 'комисионна', 'банкова такса', 'такса', 'такси', 'unicredit', 'bulbank', 'unicreditbulbank', 'ubb', 'united bulgarian bank', 'банка', 'банкомат'],
+    'Теглене': ['atm', 'ubbatm', 'cash withdrawal', 'withdrawal', 'банкомат', 'теглене', 'atm withdrawal', 'cashout'],
+    'Инвестиции': ['инвестиция', 'акции', 'облигации', 'депозит', 'investment', 'stocks', 'bonds', 'deposit'],
     'Фрийланс': ['фрийланс', 'freelance', 'проект', 'клиент', 'project', 'client']
   };
 };
 
 const categorizeWithKeywords = async (description, amount) => {
   const textLower = description.toLowerCase().trim();
+  const textCompact = textLower.replace(/[^a-zа-я0-9]+/gi, '');
   const keywords = getCategoryKeywords();
   const categoryScores = [];
 
@@ -217,10 +297,21 @@ const categorizeWithKeywords = async (description, amount) => {
     let score = 0;
     for (const keyword of categoryKeywords) {
       const keywordLower = keyword.toLowerCase();
+      const keywordCompact = keywordLower.replace(/[^a-zа-я0-9]+/gi, '');
       if (textLower === keywordLower) {
         score += 1.0;
       } else if (textLower.includes(keywordLower)) {
+        score += 0.5;
+      } else if (keywordCompact && textCompact.includes(keywordCompact)) {
         score += 0.4;
+      } else {
+        const words = textLower.split(/\s+/);
+        for (const word of words) {
+          if (word === keywordLower || word.startsWith(keywordLower) || keywordLower.startsWith(word)) {
+            score += 0.3;
+            break;
+          }
+        }
       }
     }
     if (score > 0) {
@@ -258,11 +349,15 @@ const categorizeTransaction = async (description, amount, options = {}) => {
     return { success: false, error: 'Description too short' };
   }
 
-  const cacheKey = generateCacheKey(text, 'transaction_category');
+  const transactionType = options.transactionType || determineTransactionType(amount, description);
+  const cacheKey = generateCacheKey(text, transactionType);
   const cached = await getCachedResult(cacheKey);
   
   if (cached) {
-    return { success: true, result: cached, fromCache: true };
+    const category = await FinancialCategory.findByPk(cached.categoryId);
+    if (category && category.type === transactionType) {
+      return { success: true, result: cached, fromCache: true };
+    }
   }
 
   try {
@@ -271,6 +366,8 @@ const categorizeTransaction = async (description, amount, options = {}) => {
     if (allCategories.length === 0) {
       return { success: false, error: 'No categories found in database' };
     }
+
+    const typeCategories = allCategories.filter(c => c.type === transactionType);
 
     const extracted = extractMerchantName(description);
     const hfApiKey = options.hfApiKey || process.env.HF_TXN_API_KEY;
@@ -281,21 +378,24 @@ const categorizeTransaction = async (description, amount, options = {}) => {
         const merchantResult = await classifyMerchantWithAI(
           extracted.merchantName,
           description,
-          allCategories.map(c => ({ id: c.id, name: c.name, type: c.type })),
+          typeCategories.map(c => ({ id: c.id, name: c.name, type: c.type })),
           hfApiKey,
           hfModel
         );
 
         if (merchantResult && merchantResult.categoryId) {
-          await setCachedResult(cacheKey, merchantResult);
-          return { success: true, result: merchantResult, fromCache: false };
+          // Verify the category type matches transaction type
+          const foundCategory = await FinancialCategory.findByPk(merchantResult.categoryId);
+          if (foundCategory && foundCategory.type === transactionType) {
+            merchantResult.type = transactionType;
+            await setCachedResult(cacheKey, merchantResult);
+            return { success: true, result: merchantResult, fromCache: false };
+          }
+          // If category type doesn't match, continue to try other methods
         }
       } catch (error) {
       }
     }
-
-    const transactionType = determineTransactionType(amount, description);
-    const typeCategories = allCategories.filter(c => c.type === transactionType);
 
     let mlResult = null;
     if (hfApiKey && typeCategories.length > 0) {
@@ -311,11 +411,25 @@ const categorizeTransaction = async (description, amount, options = {}) => {
     }
 
     if (mlResult && mlResult.categoryId) {
-      await setCachedResult(cacheKey, mlResult);
-      return { success: true, result: mlResult, fromCache: false };
+      // Verify the category type matches transaction type
+      const foundCategory = await FinancialCategory.findByPk(mlResult.categoryId);
+      if (foundCategory && foundCategory.type === transactionType) {
+        mlResult.type = transactionType;
+        await setCachedResult(cacheKey, mlResult);
+        return { success: true, result: mlResult, fromCache: false };
+      }
+      // If category type doesn't match, continue to try keywords/default
     }
 
-    const categoryName = await categorizeWithKeywords(description, amount);
+    let categoryName = await categorizeWithKeywords(description, amount);
+
+    if (!categoryName) {
+      const generatedCategoryName = generateCategoryNameFromDescription(description);
+      
+      if (generatedCategoryName && generatedCategoryName.length > 1) {
+        categoryName = generatedCategoryName;
+      }
+    }
 
     if (!categoryName) {
       const defaultCategory = transactionType === 'income' ? 'Други приходи' : 'Други разходи';
@@ -339,10 +453,11 @@ const categorizeTransaction = async (description, amount, options = {}) => {
     }
 
     let category = await FinancialCategory.findOne({
-      where: { name: categoryName, type: transactionType, is_active: true }
+      where: { name: categoryName, is_active: true }
     });
 
     if (!category) {
+      // Create category with the correct transaction type
       category = await FinancialCategory.create({
         name: categoryName,
         type: transactionType,
@@ -350,6 +465,22 @@ const categorizeTransaction = async (description, amount, options = {}) => {
         color: null,
         is_active: true
       });
+    } else if (category.type !== transactionType) {
+      // If existing category has wrong type, use default category instead
+      const defaultCategory = transactionType === 'income' ? 'Други приходи' : 'Други разходи';
+      category = await FinancialCategory.findOne({
+        where: { name: defaultCategory, type: transactionType, is_active: true }
+      });
+      
+      if (!category) {
+        category = await FinancialCategory.create({
+          name: defaultCategory,
+          type: transactionType,
+          icon: null,
+          color: null,
+          is_active: true
+        });
+      }
     }
 
     const result = { categoryId: category.id, categoryName: category.name, type: transactionType };
