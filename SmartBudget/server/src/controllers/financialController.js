@@ -31,6 +31,49 @@ const getCategories = async (req, res) => {
   }
 };
 
+const createCategory = async (req, res) => {
+  try {
+    const { name, type, icon, color } = req.body;
+    
+    if (!name || !type || (type !== 'income' && type !== 'expense')) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'Name and type (income/expense) are required'
+      });
+    }
+
+    const existing = await FinancialCategory.findOne({
+      where: { name, type, is_active: true }
+    });
+
+    if (existing) {
+      return res.status(200).json({
+        status: 'success',
+        data: existing
+      });
+    }
+
+    const category = await FinancialCategory.create({
+      name,
+      type,
+      icon: icon || null,
+      color: color || null,
+      is_active: true
+    });
+
+    res.status(201).json({
+      status: 'success',
+      data: category
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to create category',
+      error: error.message
+    });
+  }
+};
+
 const createTransactionHandler = async (req, res) => {
   try {
     const userId = req.user?.id;
@@ -844,6 +887,7 @@ const getGoalsSummaryHandler = async (req, res) => {
 
 module.exports = {
   getCategories,
+  createCategory,
   createTransactionHandler,
   updateTransactionHandler,
   deleteTransactionHandler,
