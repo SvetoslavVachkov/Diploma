@@ -2,13 +2,67 @@ const { FinancialCategory } = require('../../models');
 const crypto = require('crypto');
 const { AICache } = require('../../models');
 const axios = require('axios');
+const { Op } = require('sequelize');
 
 const CACHE_HOURS = 24;
 const CATEGORY_CACHE_VERSION = 'v2';
+const MERCHANT_RULE_VERSION = 'v1';
 
 const generateCacheKey = (text, type) => {
   const hash = crypto.createHash('sha256').update(`${type}:${text}`).digest('hex');
   return `transaction_category_${CATEGORY_CACHE_VERSION}_${hash}`;
+};
+
+const normalizeMerchantKey = (description) => {
+  if (!description) return null;
+  const extracted = extractMerchantName(String(description));
+  const base = (extracted?.merchantName || description || '').toString().toLowerCase();
+  const cleaned = base
+    .replace(/[\d.,]+/g, ' ')
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!cleaned) return null;
+  const stopWords = new Set(['в', 'на', 'от', 'до', 'за', 'с', 'при', 'at', 'in', 'on', 'for', 'with', 'from', 'to']);
+  const words = cleaned.split(' ').filter(w => w && !stopWords.has(w));
+  if (words.length === 0) return null;
+  return words.slice(0, 3).join(' ');
+};
+
+const merchantRuleCacheKey = (userId, transactionType, merchantKey) => {
+  const hash = crypto.createHash('sha256').update(`${userId}:${transactionType}:${merchantKey}`).digest('hex');
+  return `merchant_override_${MERCHANT_RULE_VERSION}_${hash}`;
+};
+
+const getMerchantOverride = async (userId, transactionType, merchantKey) => {
+  if (!userId || !transactionType || !merchantKey) return null;
+  try {
+    const cacheKey = merchantRuleCacheKey(userId, transactionType, merchantKey);
+    const cached = await AICache.findOne({
+      where: {
+        cache_key: cacheKey,
+        expires_at: { [Op.gt]: new Date() }
+      }
+    });
+    return cached?.result || null;
+  } catch (e) {
+    return null;
+  }
+};
+
+const setMerchantOverride = async (userId, transactionType, merchantKey, categoryId, categoryName) => {
+  if (!userId || !transactionType || !merchantKey || !categoryId) return;
+  try {
+    const expiresAt = new Date();
+    expiresAt.setFullYear(expiresAt.getFullYear() + 10);
+    const cacheKey = merchantRuleCacheKey(userId, transactionType, merchantKey);
+    await AICache.upsert({
+      cache_key: cacheKey,
+      result: { categoryId, categoryName: categoryName || null, type: transactionType, merchantKey },
+      expires_at: expiresAt
+    });
+  } catch (e) {
+  }
 };
 
 const getCachedResult = async (cacheKey) => {
@@ -17,7 +71,7 @@ const getCachedResult = async (cacheKey) => {
       where: {
         cache_key: cacheKey,
         expires_at: {
-          [require('sequelize').Op.gt]: new Date()
+          [Op.gt]: new Date()
         }
       }
     });
@@ -350,6 +404,24 @@ const categorizeTransaction = async (description, amount, options = {}) => {
   }
 
   const transactionType = options.transactionType || determineTransactionType(amount, description);
+  const userId = options.userId;
+  const merchantKey = normalizeMerchantKey(description);
+
+  if (userId && merchantKey) {
+    const override = await getMerchantOverride(userId, transactionType, merchantKey);
+    if (override && override.categoryId) {
+      const category = await FinancialCategory.findByPk(override.categoryId);
+      if (category && category.type === transactionType) {
+        return {
+          success: true,
+          result: { categoryId: category.id, categoryName: category.name, type: transactionType, merchantKey },
+          fromCache: true,
+          source: 'merchant_override'
+        };
+      }
+    }
+  }
+
   const cacheKey = generateCacheKey(text, transactionType);
   const cached = await getCachedResult(cacheKey);
   
@@ -493,6 +565,8 @@ const categorizeTransaction = async (description, amount, options = {}) => {
 };
 
 module.exports = {
-  categorizeTransaction
+  categorizeTransaction,
+  normalizeMerchantKey,
+  setMerchantOverride
 };
 

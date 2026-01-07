@@ -1,4 +1,6 @@
-const { FinancialCategory } = require('../models');
+const { FinancialCategory, FinancialTransaction } = require('../models');
+const { Op } = require('sequelize');
+const { normalizeMerchantKey, setMerchantOverride } = require('../services/financial/transactionCategorizationService');
 const { createTransaction, updateTransaction, deleteTransaction, getTransactions, getTransactionById, getTransactionSummary } = require('../services/financial/transactionService');
 const { createBudget, updateBudget, deleteBudget, getBudgets, getBudgetById, updateAllBudgetsSpentAmount } = require('../services/financial/budgetService');
 const { getMonthlyReport, getYearlyReport, getCategoryBreakdown, getTrends } = require('../services/financial/analyticsService');
@@ -138,9 +140,40 @@ const updateTransactionHandler = async (req, res) => {
       });
     }
 
+    const rememberCategoryRule = req.body?.remember_category === true || req.body?.remember_category === 'true';
+    const applyToExisting = req.body?.apply_to_existing === undefined
+      ? rememberCategoryRule
+      : (req.body?.apply_to_existing === true || req.body?.apply_to_existing === 'true');
+
     const result = await updateTransaction(transactionId, userId, req.body);
 
     if (result.success) {
+      if (rememberCategoryRule && req.body?.category_id && result.transaction?.description) {
+        try {
+          const merchantKey = normalizeMerchantKey(result.transaction.description);
+          if (merchantKey) {
+            const category = await FinancialCategory.findByPk(req.body.category_id);
+            if (category && category.type === (result.transaction.type || category.type)) {
+              await setMerchantOverride(userId, result.transaction.type, merchantKey, category.id, category.name);
+
+              if (applyToExisting) {
+                await FinancialTransaction.update(
+                  { category_id: category.id },
+                  {
+                    where: {
+                      user_id: userId,
+                      type: result.transaction.type,
+                      description: { [Op.like]: `%${merchantKey}%` }
+                    }
+                  }
+                );
+              }
+            }
+          }
+        } catch (e) {
+        }
+      }
+
       await updateAllBudgetsSpentAmount(userId);
       res.status(200).json({
         status: 'success',

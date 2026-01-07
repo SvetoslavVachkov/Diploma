@@ -465,7 +465,8 @@ const scanReceipt = async (userId, receiptText, receiptFile) => {
         const categorization = await categorizeTransaction(item.description, item.amount, {
           hfApiKey: process.env.HF_TXN_API_KEY,
           hfModel: process.env.HF_TXN_MODEL,
-          transactionType: 'expense'
+          transactionType: 'expense',
+          userId
         });
         
         if (categorization.success && categorization.result && categorization.result.categoryId) {

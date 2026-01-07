@@ -1196,7 +1196,8 @@ const importCSVTransactions = async (userId, filePath, options = {}) => {
           const categorizationOptions = {
             hfApiKey: process.env.HF_TXN_API_KEY,
             hfModel: process.env.HF_TXN_MODEL,
-            transactionType: transactionType
+            transactionType: transactionType,
+            userId
           };
           categorization = await categorizeTransaction(description, absAmount, categorizationOptions);
           
