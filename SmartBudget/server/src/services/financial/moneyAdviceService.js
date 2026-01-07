@@ -124,22 +124,48 @@ const analyzeSpendingPatterns = async (userId, periodDays = 90) => {
 const generateAdviceWithAI = async (spendingData, options = {}) => {
   try {
     const hfApiKey = options.hfApiKey || process.env.HF_TXN_API_KEY;
-    const hfModel = options.hfModel || process.env.HF_TXN_MODEL || 'facebook/bart-large-mnli';
+    const hfModel = options.hfModel || process.env.HF_TXN_MODEL || 'mistralai/Mistral-7B-Instruct-v0.2';
 
     if (!hfApiKey) {
       return generateAdviceWithRules(spendingData);
     }
 
-    const topCategories = spendingData.category_totals.slice(0, 5);
-    const overBudgetCategories = spendingData.budget_status.filter(b => b.over_budget);
-    
-    const prompt = `Analyze this financial data and provide personalized money management advice:
-Total spent: ${spendingData.total_spent.toFixed(2)} over ${spendingData.period_days} days
-Daily average: ${spendingData.daily_average.toFixed(2)}
-Top spending categories: ${topCategories.map(c => `${c.category_name}: ${c.total.toFixed(2)}`).join(', ')}
-${overBudgetCategories.length > 0 ? `Over budget categories: ${overBudgetCategories.map(b => `${b.category_name} (${b.percentage.toFixed(0)}%)`).join(', ')}` : ''}
+    const financialData = {
+      period: {
+        days: spendingData.period_days,
+        total_spent: spendingData.total_spent,
+        daily_average: spendingData.daily_average
+      },
+      categories: spendingData.category_totals.map(c => ({
+        name: c.category_name,
+        total: c.total,
+        count: c.count,
+        average: c.average
+      })),
+      budgets: spendingData.budget_status.map(b => ({
+        category: b.category_name,
+        budget: b.budget_amount,
+        spent: b.spent_amount,
+        percentage: b.percentage,
+        over_budget: b.over_budget
+      }))
+    };
 
-Provide 3-5 specific, actionable money-saving tips in Bulgarian. Focus on the highest spending categories and budget issues.`;
+    const prompt = `You are a financial advisor. Analyze this JSON financial data and provide specific, actionable money-saving advice in Bulgarian.
+
+Financial Data (JSON):
+${JSON.stringify(financialData, null, 2)}
+
+Instructions:
+- Analyze spending patterns from the JSON
+- If user spends a lot on "Гориво" (fuel), suggest public transport, carpooling, walking, or fuel-efficient driving
+- If user spends a lot on "Храна" (food), suggest meal planning, cooking at home, buying in bulk, or finding cheaper stores
+- If user spends a lot on subscriptions or services, suggest canceling unused ones
+- Give 3-5 specific tips based on actual spending data
+- Include specific amounts and percentages from the data
+- Be practical and actionable
+
+Provide your advice:`;
 
     try {
       const response = await axios.post(
@@ -147,8 +173,9 @@ Provide 3-5 specific, actionable money-saving tips in Bulgarian. Focus on the hi
         {
           inputs: prompt,
           parameters: {
-            max_length: 500,
-            temperature: 0.7
+            max_new_tokens: 400,
+            temperature: 0.7,
+            return_full_text: false
           }
         },
         {
@@ -156,18 +183,29 @@ Provide 3-5 specific, actionable money-saving tips in Bulgarian. Focus on the hi
             Authorization: `Bearer ${hfApiKey}`,
             'Content-Type': 'application/json'
           },
-          timeout: 20000
+          timeout: 30000
         }
       );
 
-      if (response.data && response.data[0] && response.data[0].generated_text) {
-        const aiText = response.data[0].generated_text;
+      let aiText = '';
+      if (Array.isArray(response.data)) {
+        const first = response.data[0];
+        if (first && typeof first.generated_text === 'string') {
+          aiText = first.generated_text.trim();
+        }
+      } else if (response.data && typeof response.data.generated_text === 'string') {
+        aiText = response.data.generated_text.trim();
+      }
+
+      if (aiText) {
         const tips = extractTipsFromText(aiText);
-        return {
-          success: true,
-          advice: tips,
-          source: 'ai'
-        };
+        if (tips.length > 0) {
+          return {
+            success: true,
+            advice: tips,
+            source: 'ai'
+          };
+        }
       }
     } catch (error) {
     }
