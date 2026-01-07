@@ -39,6 +39,7 @@ const Transactions = () => {
   const [receiptError, setReceiptError] = useState('');
   const [editingCategory, setEditingCategory] = useState(null);
   const [newCategoryName, setNewCategoryName] = useState('');
+  const [rememberCategoryRule, setRememberCategoryRule] = useState(true);
   const [formData, setFormData] = useState({
     description: '',
     amount: '',
@@ -153,6 +154,7 @@ const Transactions = () => {
   const handleEditCategory = (tx) => {
     setEditingCategory(tx.id);
     setNewCategoryName('');
+    setRememberCategoryRule(true);
   };
 
   const handleSaveCategory = async (tx) => {
@@ -179,7 +181,9 @@ const Transactions = () => {
       
       if (categoryId) {
         await api.put(`/financial/transactions/${tx.id}`, {
-          category_id: categoryId
+          category_id: categoryId,
+          remember_category: rememberCategoryRule,
+          apply_to_existing: rememberCategoryRule
         });
         await fetchData();
       }
@@ -196,6 +200,7 @@ const Transactions = () => {
   const handleCancelEdit = () => {
     setEditingCategory(null);
     setNewCategoryName('');
+    setRememberCategoryRule(true);
   };
 
   const handleCSVUpload = async (e) => {
@@ -858,6 +863,15 @@ const Transactions = () => {
                             ))}
                             <option value="__new__">+ Нова категория</option>
                           </select>
+                          <label style={styles.rememberRuleLabel}>
+                            <input
+                              type="checkbox"
+                              checked={rememberCategoryRule}
+                              onChange={(e) => setRememberCategoryRule(e.target.checked)}
+                              style={styles.rememberRuleCheckbox}
+                            />
+                            Запомни за бъдещи (и стари) транзакции
+                          </label>
                           <button
                             onClick={() => handleSaveCategory(tx)}
                             style={styles.saveButton}
@@ -1157,7 +1171,8 @@ const styles = {
   editCategoryContainer: {
     display: 'flex',
     gap: '8px',
-    alignItems: 'center'
+    alignItems: 'center',
+    flexWrap: 'wrap'
   },
   categorySelect: {
     padding: '6px 12px',
@@ -1184,6 +1199,18 @@ const styles = {
     borderRadius: '6px',
     cursor: 'pointer',
     fontSize: '14px'
+  },
+  rememberRuleLabel: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    fontSize: '13px',
+    color: '#374151',
+    whiteSpace: 'nowrap'
+  },
+  rememberRuleCheckbox: {
+    width: '16px',
+    height: '16px'
   },
   emptyCell: {
     textAlign: 'center',
