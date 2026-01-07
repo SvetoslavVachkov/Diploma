@@ -31,8 +31,8 @@ const generateSpendingReport = async (userId, dateFrom, dateTo) => {
     const categoryTotals = {};
     const totalSpent = transactions.reduce((sum, t) => {
       const amount = parseFloat(t.amount);
-      const catId = t.category_id;
-      const catName = t.category ? t.category.name : 'Unknown';
+      const catId = t.category_id || 'unknown';
+      const catName = (t.category && t.category.name) ? t.category.name : 'Други разходи';
       
       if (!categoryTotals[catId]) {
         categoryTotals[catId] = {
@@ -49,7 +49,7 @@ const generateSpendingReport = async (userId, dateFrom, dateTo) => {
       categoryTotals[catId].transactions.push({
         id: t.id,
         amount: amount,
-        description: t.description,
+        description: t.description || 'Без описание',
         date: t.transaction_date
       });
       

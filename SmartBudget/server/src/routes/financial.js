@@ -3,6 +3,7 @@ const router = express.Router();
 const { authenticateToken } = require('../middleware/auth');
 const {
   getCategories,
+  createCategory,
   createTransactionHandler,
   updateTransactionHandler,
   deleteTransactionHandler,
@@ -40,6 +41,7 @@ const {
 } = require('../controllers/moneyAdviceController');
 
 router.get('/categories', getCategories);
+router.post('/categories', authenticateToken, createCategory);
 
 router.post('/transactions', authenticateToken, createTransactionHandler);
 router.get('/transactions', authenticateToken, getTransactionsHandler);

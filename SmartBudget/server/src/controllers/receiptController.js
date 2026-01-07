@@ -38,6 +38,11 @@ const upload = multer({
 const uploadReceipt = upload.single('receiptFile');
 
 const scanReceiptHandler = async (req, res) => {
+  let fileToCleanup = null;
+  
+  req.setTimeout(180000);
+  res.setTimeout(180000);
+  
   try {
     const userId = req.user?.id;
     
@@ -58,6 +63,10 @@ const scanReceiptHandler = async (req, res) => {
       });
     }
     
+    if (receiptFile) {
+      fileToCleanup = receiptFile.path;
+    }
+    
     const result = await scanReceipt(userId, receiptText, receiptFile);
     
     if (result.success) {
@@ -76,16 +85,24 @@ const scanReceiptHandler = async (req, res) => {
       });
     }
   } catch (error) {
-    if (req.file) {
-      fs.unlink(req.file.path, (err) => {
-        if (err) {
-        }
-      });
+    if (fileToCleanup && fs.existsSync(fileToCleanup)) {
+      try {
+        fs.unlinkSync(fileToCleanup);
+      } catch (unlinkError) {
+        console.error('Error cleaning up file:', unlinkError);
+      }
     }
+    
+    console.error('Receipt scan error:', error);
+    console.error('Error stack:', error.stack);
+    
+    const errorMessage = error.message || 'Failed to scan receipt';
+    
     res.status(500).json({
       status: 'error',
-      message: 'Failed to scan receipt',
-      error: error.message
+      message: errorMessage.includes('OCR') || errorMessage.includes('extracted') 
+        ? errorMessage 
+        : `Грешка при сканиране на бележка: ${errorMessage}`
     });
   }
 };
