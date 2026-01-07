@@ -43,18 +43,18 @@ const Reports = () => {
       if (dateTo) params.date_to = dateTo;
 
       const [spendingRes, monthlyRes] = await Promise.all([
-        api.get('/financial/reports/spending', { params }),
+        api.get('/financial/reports/spending', { params }).catch(() => ({ data: { data: null } })),
         api.get('/financial/reports/monthly', {
           params: {
             year: new Date().getFullYear(),
             month: new Date().getMonth() + 1
           }
-        })
+        }).catch(() => ({ data: { data: null } }))
       ]);
-      setSpendingReport(spendingRes.data.data || null);
-      setMonthlyReport(monthlyRes.data.data || null);
+      
+      setSpendingReport(spendingRes.data?.data || null);
+      setMonthlyReport(monthlyRes.data?.data || null);
     } catch (error) {
-      console.error('Error fetching reports:', error);
       setSpendingReport(null);
       setMonthlyReport(null);
     } finally {
@@ -66,7 +66,7 @@ const Reports = () => {
     return <div style={styles.loading}>Зареждане...</div>;
   }
 
-  const categoryData = spendingReport?.top_categories?.slice(0, 5) || [];
+  const categoryData = (spendingReport?.top_categories || spendingReport?.report?.top_categories || []).slice(0, 5);
   const doughnutData = {
     labels: categoryData.map((cat) => cat.category_name),
     datasets: [
@@ -84,15 +84,15 @@ const Reports = () => {
     ]
   };
 
-  const monthlyData = monthlyReport
+  const monthlyData = monthlyReport && monthlyReport.totals
     ? {
         labels: ['Приходи', 'Разходи'],
         datasets: [
           {
             label: 'Сума',
             data: [
-              parseFloat(monthlyReport.total_income || 0),
-              parseFloat(monthlyReport.total_expense || 0)
+              parseFloat(monthlyReport.totals.income || 0),
+              parseFloat(monthlyReport.totals.expense || 0)
             ],
             backgroundColor: ['#10b981', '#ef4444'],
             borderWidth: 0
@@ -123,22 +123,22 @@ const Reports = () => {
         </div>
       </div>
 
-      {spendingReport && (
+      {spendingReport && spendingReport.summary && (
         <div style={styles.summarySection}>
           <div style={styles.summaryCard}>
             <h3 style={styles.summaryTitle}>Общо разходи</h3>
             <p style={styles.summaryAmount}>
-              {spendingReport.summary.total_spent.toFixed(2)} лв
+              {(spendingReport.summary.total_spent || 0).toFixed(2)} лв
             </p>
           </div>
           <div style={styles.summaryCard}>
             <h3 style={styles.summaryTitle}>Брой транзакции</h3>
-            <p style={styles.summaryAmount}>{spendingReport.summary.transaction_count}</p>
+            <p style={styles.summaryAmount}>{spendingReport.summary.transaction_count || 0}</p>
           </div>
           <div style={styles.summaryCard}>
             <h3 style={styles.summaryTitle}>Средна транзакция</h3>
             <p style={styles.summaryAmount}>
-              {spendingReport.summary.average_transaction.toFixed(2)} лв
+              {(spendingReport.summary.average_transaction || 0).toFixed(2)} лв
             </p>
           </div>
         </div>
@@ -164,8 +164,8 @@ const Reports = () => {
                     <span style={styles.categoryName}>{cat.category_name}</span>
                   </div>
                   <div style={styles.categoryAmount}>
-                    <span style={styles.categoryTotal}>{cat.total.toFixed(2)} лв</span>
-                    <span style={styles.categoryPercent}>({cat.percentage.toFixed(1)}%)</span>
+                    <span style={styles.categoryTotal}>{(cat.total || 0).toFixed(2)} лв</span>
+                    <span style={styles.categoryPercent}>({(cat.percentage || 0).toFixed(1)}%)</span>
                   </div>
                 </div>
               ))}
@@ -183,13 +183,13 @@ const Reports = () => {
               <div style={styles.statItem}>
                 <span style={styles.statLabel}>Приходи:</span>
                 <span style={styles.statValueIncome}>
-                  {monthlyReport.total_income.toFixed(2)} лв
+                  {monthlyReport.totals?.income?.toFixed(2) || '0.00'} лв
                 </span>
               </div>
               <div style={styles.statItem}>
                 <span style={styles.statLabel}>Разходи:</span>
                 <span style={styles.statValueExpense}>
-                  {monthlyReport.total_expense.toFixed(2)} лв
+                  {monthlyReport.totals?.expense?.toFixed(2) || '0.00'} лв
                 </span>
               </div>
               <div style={styles.statItem}>
@@ -198,12 +198,12 @@ const Reports = () => {
                   style={{
                     ...styles.statValue,
                     color:
-                      monthlyReport.balance >= 0
+                      (monthlyReport.totals?.balance || 0) >= 0
                         ? '#10b981'
                         : '#ef4444'
                   }}
                 >
-                  {monthlyReport.balance.toFixed(2)} лв
+                  {(monthlyReport.totals?.balance || 0).toFixed(2)} лв
                 </span>
               </div>
             </div>
@@ -224,7 +224,7 @@ const Reports = () => {
                   ).toLocaleDateString('bg-BG')}
                 </p>
                 <p style={styles.insightAmount}>
-                  {spendingReport.insights.highest_spending_day.amount.toFixed(2)} лв
+                  {(spendingReport.insights.highest_spending_day.amount || 0).toFixed(2)} лв
                 </p>
               </div>
             )}
@@ -232,10 +232,10 @@ const Reports = () => {
               <div style={styles.insightCard}>
                 <h3 style={styles.insightLabel}>Най-голяма транзакция</h3>
                 <p style={styles.insightValue}>
-                  {spendingReport.insights.largest_transaction.description}
+                  {spendingReport.insights.largest_transaction.description || 'Няма описание'}
                 </p>
                 <p style={styles.insightAmount}>
-                  {spendingReport.insights.largest_transaction.amount.toFixed(2)} лв
+                  {(spendingReport.insights.largest_transaction.amount || 0).toFixed(2)} лв
                 </p>
               </div>
             )}
@@ -243,10 +243,10 @@ const Reports = () => {
               <div style={styles.insightCard}>
                 <h3 style={styles.insightLabel}>Най-честа категория</h3>
                 <p style={styles.insightValue}>
-                  {spendingReport.insights.most_frequent_category.category_name}
+                  {spendingReport.insights.most_frequent_category.category_name || 'Други'}
                 </p>
                 <p style={styles.insightAmount}>
-                  {spendingReport.insights.most_frequent_category.count} транзакции
+                  {spendingReport.insights.most_frequent_category.count || 0} транзакции
                 </p>
               </div>
             )}

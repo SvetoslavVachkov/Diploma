@@ -30,8 +30,10 @@ const hashToken = (token) => {
 
 const registerUser = async (userData) => {
   try {
+    const normalizedEmail = userData.email.trim().toLowerCase();
+    
     const existingUser = await User.findOne({
-      where: { email: userData.email }
+      where: { email: normalizedEmail }
     });
 
     if (existingUser) {
@@ -44,7 +46,7 @@ const registerUser = async (userData) => {
     const passwordHash = await hashPassword(userData.password);
     
     const user = await User.create({
-      email: userData.email,
+      email: normalizedEmail,
       password_hash: passwordHash,
       first_name: userData.first_name || null,
       last_name: userData.last_name || null,
@@ -82,8 +84,15 @@ const registerUser = async (userData) => {
 
 const loginUser = async (email, password) => {
   try {
+    if (!email || !password) {
+      return {
+        success: false,
+        error: 'Email and password are required'
+      };
+    }
+
     const user = await User.findOne({
-      where: { email }
+      where: { email: email.trim().toLowerCase() }
     });
 
     if (!user) {
@@ -97,6 +106,13 @@ const loginUser = async (email, password) => {
       return {
         success: false,
         error: 'Account is deactivated'
+      };
+    }
+
+    if (!user.password_hash) {
+      return {
+        success: false,
+        error: 'Account password not set. Please reset your password.'
       };
     }
 

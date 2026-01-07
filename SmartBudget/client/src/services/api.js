@@ -4,7 +4,8 @@ const api = axios.create({
   baseURL: '/api',
   headers: {
     'Content-Type': 'application/json'
-  }
+  },
+  timeout: 180000 // 3 minutes default timeout for long operations like OCR
 });
 
 api.interceptors.response.use(
