@@ -5,6 +5,7 @@ const AIChat = () => {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [pendingAction, setPendingAction] = useState(null);
   const messagesEndRef = useRef(null);
 
   useEffect(() => {
@@ -20,15 +21,45 @@ const AIChat = () => {
     setLoading(true);
 
     try {
+      let messageToSend = userMessage;
+      const msgLower = userMessage.toLowerCase().trim();
+      if (pendingAction && (msgLower === 'да' || msgLower === 'yes' || msgLower === 'потвърди' || msgLower.includes('потвърждавам') || msgLower === 'ok' || msgLower === 'ок')) {
+        if (pendingAction === 'delete_all') {
+          messageToSend = 'изтрий всички транзакции да';
+        }
+      }
+      
       const response = await api.post('/financial/ai/chat', {
-        message: userMessage
+        message: messageToSend
       });
 
       if (response.data.status === 'success') {
-        setMessages(prev => [...prev, {
+        const assistantMessage = {
           role: 'assistant',
           content: response.data.data.response
-        }]);
+        };
+        
+        if (response.data.data.action) {
+          assistantMessage.action = response.data.data.action;
+          assistantMessage.actionData = response.data.data.data;
+        }
+        
+        if (response.data.data.requiresConfirmation) {
+          assistantMessage.requiresConfirmation = true;
+          assistantMessage.action = response.data.data.action;
+          assistantMessage.actionData = response.data.data.actionData;
+          setPendingAction(response.data.data.action);
+        } else {
+          setPendingAction(null);
+        }
+        
+        setMessages(prev => [...prev, assistantMessage]);
+        
+        if (response.data.data.action && !response.data.data.requiresConfirmation) {
+          setTimeout(() => {
+            window.location.reload();
+          }, 2000);
+        }
       } else {
         setMessages(prev => [...prev, {
           role: 'assistant',
@@ -66,6 +97,8 @@ const AIChat = () => {
                 <li>Колко харча за гориво?</li>
                 <li>Как мога да спестя пари?</li>
                 <li>Кои са най-големите ми разходи?</li>
+                <li>Изтрий всички транзакции</li>
+                <li>Добави транзакция 50 € за храна</li>
               </ul>
             </div>
           )}
@@ -86,8 +119,88 @@ const AIChat = () => {
                   background: '#f3f4f6',
                   color: '#1f2937'
                 })
-              }}>
+              }}> 
                 {msg.content}
+                {msg.requiresConfirmation && (
+                  <div style={{ marginTop: '10px' }}>
+                    <button
+                      onClick={async () => {
+                        const confirmMessage = 'да';
+                        setMessages(prev => [...prev, { role: 'user', content: confirmMessage }]);
+                        setLoading(true);
+                        
+                        try {
+                          let messageToSend = confirmMessage;
+                          // Просто изпращаме "да" - backend ще разпознае потвърждението от сесията
+                          
+                          const response = await api.post('/financial/ai/chat', {
+                            message: messageToSend
+                          });
+                          
+                          if (response.data.status === 'success') {
+                            const assistantMessage = {
+                              role: 'assistant',
+                              content: response.data.data.response
+                            };
+                            
+                            if (response.data.data.action) {
+                              assistantMessage.action = response.data.data.action;
+                              assistantMessage.actionData = response.data.data.data;
+                            }
+                            
+                            setMessages(prev => [...prev, assistantMessage]);
+                            setPendingAction(null);
+                            
+                            if (response.data.data.action && !response.data.data.requiresConfirmation) {
+                              setTimeout(() => {
+                                window.location.reload();
+                              }, 2000);
+                            }
+                          } else {
+                            setMessages(prev => [...prev, {
+                              role: 'assistant',
+                              content: 'Грешка: ' + (response.data.message || 'Неизвестна грешка')
+                            }]);
+                          }
+                        } catch (error) {
+                          setMessages(prev => [...prev, {
+                            role: 'assistant',
+                            content: 'Грешка при изпращане на съобщение: ' + (error.response?.data?.message || error.message)
+                          }]);
+                        } finally {
+                          setLoading(false);
+                        }
+                      }}
+                      style={{
+                        padding: '8px 16px',
+                        marginRight: '10px',
+                        background: '#10b981',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '6px',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      Потвърди
+                    </button>
+                    <button
+                      onClick={() => {
+                        setPendingAction(null);
+                        setMessages(prev => prev.filter((_, idx) => idx !== prev.length - 1));
+                      }}
+                      style={{
+                        padding: '8px 16px',
+                        background: '#ef4444',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '6px',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      Отказ
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           ))}
