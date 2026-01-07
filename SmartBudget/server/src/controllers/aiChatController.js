@@ -20,20 +20,46 @@ const chatHandler = async (req, res) => {
       });
     }
 
-    const apiKey = process.env.HF_TXN_API_KEY;
-    const model = process.env.HF_TXN_MODEL || 'mistralai/Mistral-7B-Instruct-v0.2';
+    const apiKey = process.env.GROQ_API_KEY;
+    const model = process.env.GROQ_MODEL || 'llama-3.1-8b-instant';
 
-    const result = await chatWithAI(userId, message.trim(), apiKey, model);
+    const previousAction = req.session.pendingAction || null;
+    const previousActionData = req.session.pendingActionData || null;
+
+    const result = await chatWithAI(userId, message.trim(), apiKey, model, previousAction, previousActionData);
 
     if (result.success) {
+      const responseData = {
+        response: result.response,
+        context: result.context
+      };
+      
+      if (result.action) {
+        responseData.action = result.action;
+      }
+      
+      if (result.requiresConfirmation) {
+        responseData.requiresConfirmation = true;
+        responseData.action = result.action;
+        responseData.actionData = result.actionData;
+        req.session.pendingAction = result.action;
+        req.session.pendingActionData = result.actionData;
+      } else {
+        req.session.pendingAction = null;
+        req.session.pendingActionData = null;
+      }
+      
+      if (result.data) {
+        responseData.data = result.data;
+      }
+      
       res.status(200).json({
         status: 'success',
-        data: {
-          response: result.response,
-          context: result.context
-        }
+        data: responseData
       });
     } else {
+      req.session.pendingAction = null;
+      req.session.pendingActionData = null;
       res.status(400).json({
         status: 'error',
         message: result.error

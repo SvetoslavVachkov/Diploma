@@ -208,6 +208,9 @@ Provide your advice:`;
         }
       }
     } catch (error) {
+      if (error.response && (error.response.status === 410 || error.response.status === 404)) {
+        return generateAdviceWithRules(spendingData);
+      }
     }
 
     return generateAdviceWithRules(spendingData);
