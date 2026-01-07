@@ -3,11 +3,17 @@ const path = require('path');
 const Tesseract = require('tesseract.js');
 const { categorizeTransaction } = require('./transactionCategorizationService');
 const { createTransaction } = require('./transactionService');
+const { parseReceiptWithAI } = require('./receiptAiParseService');
 
 const parseReceiptText = (text) => {
   const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
   const items = [];
   const euroAmountPattern = /(?:[\d.,]+\s*(?:EUR|€))|(?:(?:€|EUR)\s*[\d.,]+)/i;
+  const moneyDecimalPattern = /\b(\d{1,5}[.,]\d{2})\b/g;
+  const moneyNumberPattern = /\b(\d{1,5}(?:[.,]\d{2})?)\b/g;
+  const bgnAmountPattern = /(?:[\d.,]+\s*(?:BGN|лв))|(?:(?:BGN|лв)\s*[\d.,]+)/i;
+  const parenAmountPattern = /\(\s*(\d{1,5}[.,]\d{2})\s*\)/g;
+  const timePattern = /\b\d{1,2}:\d{2}(?::\d{2})?\b/;
   const datePattern = /(\d{1,2}[.\/]\d{1,2}[.\/]\d{2,4})/;
   
   let foundDate = null;
@@ -22,15 +28,18 @@ const parseReceiptText = (text) => {
       foundDate = dateMatch[1];
     }
     
-    if (!merchantName && line.length > 3 && line.length < 80 && !line.match(euroAmountPattern) && !line.match(datePattern) && !line.toLowerCase().match(/общо|total|сума|date|дата|час|time|address|адрес|тел|phone|тел\.|тел:/i)) {
+    if (!merchantName && line.length > 3 && line.length < 80 && !line.match(euroAmountPattern) && !line.match(bgnAmountPattern) && !line.match(datePattern) && !line.toLowerCase().match(/общо|total|сума|date|дата|час|time|address|адрес|тел|phone|тел\.|тел:/i)) {
       const lineLower = line.toLowerCase();
+      if (lineLower.match(/eltrade|datecs|tremol|fiscal|pos|terminal|receipt|касова|бележка|фискален|служебен|barcode|qr|vat|dds|еик|bulstat/i)) {
+        continue;
+      }
       if (lineLower.match(/ресторант|restaurant|cafe|кафе|магазин|supermarket|store|shop|merchant|заведение/i) || 
           (!line.match(/^\d+/) && !line.match(/^[\d.,\s€EUR]+$/i))) {
         merchantName = line;
       }
     }
     
-    const totalKeywords = ['общо', 'total', 'сума', 'всичко', 'сума за плащане', 'amount', 'sum'];
+    const totalKeywords = ['общо', 'total', 'сума', 'всичко', 'сума за плащане', 'amount', 'sum', 'за плащане', 'pay', 'due'];
     const hasTotalKeyword = totalKeywords.some(keyword => line.toLowerCase().includes(keyword));
     
     if (hasTotalKeyword) {
@@ -40,6 +49,16 @@ const parseReceiptText = (text) => {
         const amount = parseFloat(amountStr);
         if (!isNaN(amount) && amount > 0) {
           totalAmount = amount;
+        }
+      } else {
+        const sanitized = line.replace(timePattern, ' ');
+        const matches = [...sanitized.matchAll(moneyDecimalPattern)];
+        if (matches.length > 0) {
+          const last = matches[matches.length - 1][1];
+          const amount = parseFloat(String(last).replace(',', '.'));
+          if (!isNaN(amount) && amount > 0.01 && amount < 10000) {
+            totalAmount = amount;
+          }
         }
       }
     }
@@ -76,7 +95,84 @@ const parseReceiptText = (text) => {
       }
     }
   }
+
+  if (!totalAmount || totalAmount <= 0) {
+    const candidates = [];
+    for (const line of lines) {
+      const lower = line.toLowerCase();
+      if (timePattern.test(line)) continue;
+
+      const hasBgn = /\bBGN\b|лв/i.test(line);
+      const parenMatches = [...line.matchAll(parenAmountPattern)];
+      const bgnMatches = [...line.matchAll(moneyDecimalPattern)];
+
+      if (hasBgn && parenMatches.length > 0 && bgnMatches.length > 0) {
+        const bgn = parseFloat(String(bgnMatches[0][1]).replace(',', '.'));
+        const eur = parseFloat(String(parenMatches[parenMatches.length - 1][1]).replace(',', '.'));
+        if (!isNaN(bgn) && !isNaN(eur) && bgn > 0 && eur > 0) {
+          const ratio = bgn / eur;
+          if (ratio > 1.7 && ratio < 2.3) {
+            let score = eur + 10000;
+            if (['общо', 'total', 'сума', 'sum', 'amount', 'pay', 'due'].some(k => lower.includes(k))) {
+              score += 5000;
+            }
+            candidates.push({ v: eur, score });
+          }
+        }
+      }
+    }
+    candidates.sort((a, b) => b.score - a.score);
+    if (candidates.length > 0) {
+      totalAmount = candidates[0].v;
+    }
+  }
+
+  if (!totalAmount || totalAmount <= 0) {
+    const candidates = [];
+    for (const line of lines) {
+      const lower = line.toLowerCase();
+      if (timePattern.test(line)) {
+        continue;
+      }
+      const sanitized = line.replace(timePattern, ' ');
+      const hasCurrencyMarker = /€|eur|\bleva\b|лв|bgn/i.test(line);
+      const matches = [...sanitized.matchAll(moneyNumberPattern)];
+      if (matches.length === 0) continue;
+
+      const hasTotalLike = ['общо', 'total', 'сума', 'sum', 'amount', 'pay', 'due'].some(k => lower.includes(k));
+      for (const m of matches) {
+        const v = parseFloat(String(m[1]).replace(',', '.'));
+        const raw = String(m[1]);
+        const hasDecimal = raw.includes('.') || raw.includes(',');
+        if (!isNaN(v) && v > 0.01 && v < 10000) {
+          if (!hasDecimal && !hasCurrencyMarker) {
+            continue;
+          }
+          if (!hasCurrencyMarker && v > 2000) {
+            continue;
+          }
+          let score = v;
+          if (hasTotalLike) score += 10000;
+          candidates.push({ v, score });
+        }
+      }
+    }
+    candidates.sort((a, b) => b.score - a.score);
+    if (candidates.length > 0) {
+      totalAmount = candidates[0].v;
+    }
+  }
   
+  const hasAnyEur = /€|\bEUR\b/i.test(text) || totalAmount > 0;
+
+  if (!hasAnyEur) {
+    return {
+      date: foundDate,
+      items: [],
+      total: 0
+    };
+  }
+
   if (totalAmount && totalAmount > 0) {
     
     let description = merchantName;
@@ -84,7 +180,7 @@ const parseReceiptText = (text) => {
     if (!description) {
       for (const line of lines) {
         const lineLower = line.toLowerCase();
-        if (lineLower.match(/domino|pizza|ресторант|restaurant|cafe|кафе|магазин|supermarket|billa|fantastico|lidl|kaufland|merchant|store|shop/i)) {
+        if (lineLower.match(/domino|dominos|pizza|пиц|ресторант|restaurant|cafe|кафе|магазин|supermarket|billa|fantastico|lidl|kaufland|merchant|store|shop/i)) {
           description = line;
           break;
         }
@@ -94,7 +190,11 @@ const parseReceiptText = (text) => {
     if (!description) {
       description = lines.find(l => {
         const len = l.length;
-        return len > 3 && len < 100 && !l.match(amountPattern) && !l.match(/^[\d.,\s€$£лвBGNUSDEUR]+$/i) && !l.toLowerCase().match(/общо|total|сума|date|дата|час|time|address|адрес|тел|phone/i);
+        const ll = l.toLowerCase();
+        if (ll.match(/eltrade|datecs|tremol|fiscal|pos|terminal|receipt|касова|бележка|фискален|служебен|barcode|qr|vat|dds|еик|bulstat/i)) {
+          return false;
+        }
+        return len > 3 && len < 100 && !l.match(euroAmountPattern) && !l.match(/^[\d.,\s€$£лвBGNUSDEUR]+$/i) && !ll.match(/общо|total|сума|date|дата|час|time|address|адрес|тел|phone/i);
       }) || 'Бележка';
     }
     
@@ -117,16 +217,37 @@ const extractTextFromImage = async (imagePath) => {
     if (!fs.existsSync(imagePath)) {
       throw new Error('Image file does not exist');
     }
-    
-    const { data: { text } } = await Tesseract.recognize(imagePath, 'eng+bul', {
-      logger: (m) => {
-        if (m.status === 'recognizing text') {
-          console.log(`OCR progress: ${Math.round(m.progress * 100)}%`);
+
+    const run = async (psm) => {
+      const worker = await Tesseract.createWorker('eng+bul', 1, {
+        logger: (m) => {
+          if (m.status === 'recognizing text') {
+            console.log(`OCR progress (psm ${psm}): ${Math.round(m.progress * 100)}%`);
+          }
         }
-      },
-      tessedit_pageseg_mode: '6',
-      tessedit_ocr_engine_mode: '1'
-    });
+      });
+      await worker.setParameters({
+        tessedit_pageseg_mode: String(psm),
+        tessedit_ocr_engine_mode: '3',
+        preserve_interword_spaces: '1'
+      });
+      const { data: { text } } = await worker.recognize(imagePath);
+      await worker.terminate();
+      return text || '';
+    };
+
+    const textPsm6 = await run(6);
+    const textPsm11 = await run(11);
+    const pickBetter = (a, b) => {
+      const score = (t) => {
+        const digits = (t.match(/\d/g) || []).length;
+        const moneyLike = (t.match(/\d+[.,]\d{2}/g) || []).length;
+        return digits + moneyLike * 5;
+      };
+      return score(b) > score(a) ? b : a;
+    };
+
+    const text = pickBetter(textPsm6, textPsm11);
     
     if (!text || text.trim().length < 3) {
       throw new Error('OCR extracted no text from image');
@@ -196,6 +317,118 @@ const scanReceipt = async (userId, receiptText, receiptFile) => {
         success: false,
         error: 'Текстът от бележката е твърде кратък или празен. Моля проверете снимката.'
       };
+    }
+
+    const aiKey = process.env.HF_RECEIPT_API_KEY || process.env.HF_STMT_API_KEY || process.env.HF_TXN_API_KEY;
+    const aiModel = process.env.HF_RECEIPT_MODEL || process.env.HF_STMT_MODEL;
+    if (aiKey && aiModel) {
+      try {
+        const aiParsed = await parseReceiptWithAI(text, { apiKey: aiKey, model: aiModel });
+        if (aiParsed?.amount_eur && aiParsed.amount_eur > 0) {
+          const aiMerchant = aiParsed.merchant || null;
+          const desc = aiMerchant && aiMerchant.length > 2 ? aiMerchant : 'Бележка';
+          const parsed = {
+            date: null,
+            items: [{ description: desc.substring(0, 100), amount: aiParsed.amount_eur }],
+            total: aiParsed.amount_eur
+          };
+          return await (async () => {
+            const results = [];
+            let imported = 0;
+            let failed = 0;
+
+            for (const item of parsed.items) {
+              let categoryId = null;
+              let categoryName = null;
+
+              try {
+                const categorization = await categorizeTransaction(item.description, item.amount, {
+                  hfApiKey: process.env.HF_TXN_API_KEY,
+                  hfModel: process.env.HF_TXN_MODEL,
+                  transactionType: 'expense'
+                });
+
+                if (categorization.success && categorization.result && categorization.result.categoryId) {
+                  const { FinancialCategory } = require('../../models');
+                  const foundCategory = await FinancialCategory.findByPk(categorization.result.categoryId);
+                  if (foundCategory && foundCategory.type === 'expense') {
+                    categoryId = categorization.result.categoryId;
+                    categoryName = categorization.result.categoryName;
+                  }
+                }
+              } catch (catError) {
+              }
+
+              if (!categoryId) {
+                const { FinancialCategory } = require('../../models');
+                const defaultCategory = await FinancialCategory.findOne({
+                  where: { name: 'Други разходи', type: 'expense', is_active: true }
+                });
+                if (defaultCategory) {
+                  categoryId = defaultCategory.id;
+                  categoryName = defaultCategory.name;
+                } else {
+                  const newCategory = await FinancialCategory.create({
+                    name: 'Други разходи',
+                    type: 'expense',
+                    icon: null,
+                    color: null,
+                    is_active: true
+                  });
+                  categoryId = newCategory.id;
+                  categoryName = newCategory.name;
+                }
+              }
+
+              const transactionDate = new Date();
+              const formatDateLocal = (d) => {
+                const yyyy = d.getFullYear();
+                const mm = String(d.getMonth() + 1).padStart(2, '0');
+                const dd = String(d.getDate()).padStart(2, '0');
+                return `${yyyy}-${mm}-${dd}`;
+              };
+
+              const transactionData = {
+                category_id: categoryId,
+                amount: -Math.abs(item.amount),
+                description: item.description,
+                transaction_date: formatDateLocal(transactionDate),
+                type: 'expense',
+                source: 'Receipt Scan'
+              };
+
+              const createResult = await createTransaction(userId, transactionData);
+
+              if (createResult.success) {
+                imported++;
+                results.push({
+                  description: item.description,
+                  amount: item.amount,
+                  category: categoryName,
+                  status: 'imported'
+                });
+              } else {
+                failed++;
+                results.push({
+                  description: item.description,
+                  amount: item.amount,
+                  category: categoryName,
+                  status: 'failed',
+                  error: createResult.error
+                });
+              }
+            }
+
+            return {
+              success: true,
+              imported,
+              total: parsed.items.length,
+              results
+            };
+          })();
+        }
+      } catch (aiErr) {
+      }
     }
     
     const parsed = parseReceiptText(text);
@@ -271,12 +504,19 @@ const scanReceipt = async (userId, receiptText, receiptFile) => {
       const transactionDate = parsed.date 
         ? new Date(parsed.date.split(/[.\/]/).reverse().join('-'))
         : new Date();
+
+      const formatDateLocal = (d) => {
+        const yyyy = d.getFullYear();
+        const mm = String(d.getMonth() + 1).padStart(2, '0');
+        const dd = String(d.getDate()).padStart(2, '0');
+        return `${yyyy}-${mm}-${dd}`;
+      };
       
       const transactionData = {
         category_id: categoryId,
         amount: -Math.abs(item.amount),
         description: item.description,
-        transaction_date: transactionDate.toISOString().substring(0, 10),
+        transaction_date: formatDateLocal(transactionDate),
         type: 'expense',
         source: 'Receipt Scan'
       };
