@@ -59,6 +59,13 @@ const Layout = ({ children }) => {
               Отчети
             </Link>
             <Link
+              to="/ai-chat"
+              style={{
+                ...styles.navLink,
+                ...(isActive('/ai-chat') ? styles.navLinkActive : {})
+              }}
+            >
+              AI Съветник
               to="/news"
               style={{
                 ...styles.navLink,

@@ -8,6 +8,7 @@ import Dashboard from './pages/Dashboard';
 import Transactions from './pages/Transactions';
 import Goals from './pages/Goals';
 import Reports from './pages/Reports';
+import AIChat from './pages/AIChat';
 import News from './pages/News';
 import Layout from './components/Layout';
 
@@ -33,6 +34,7 @@ function App() {
                     <Route path="/transactions" element={<Transactions />} />
                     <Route path="/goals" element={<Goals />} />
                     <Route path="/reports" element={<Reports />} />
+                    <Route path="/ai-chat" element={<AIChat />} />
                     <Route path="/news" element={<News />} />
                     <Route path="*" element={<Navigate to="/" replace />} />
                   </Routes>
