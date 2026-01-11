@@ -58,6 +58,15 @@ const Layout = ({ children }) => {
             >
               Отчети
             </Link>
+            <Link
+              to="/news"
+              style={{
+                ...styles.navLink,
+                ...(isActive('/news') ? styles.navLinkActive : {})
+              }}
+            >
+              Новини
+            </Link>
           </div>
           <div style={styles.userSection}>
             <span style={styles.userName}>
