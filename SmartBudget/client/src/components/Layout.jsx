@@ -66,6 +66,13 @@ const Layout = ({ children }) => {
               }}
             >
               AI Съветник
+              to="/news"
+              style={{
+                ...styles.navLink,
+                ...(isActive('/news') ? styles.navLinkActive : {})
+              }}
+            >
+              Новини
             </Link>
           </div>
           <div style={styles.userSection}>
