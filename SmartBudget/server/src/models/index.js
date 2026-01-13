@@ -16,6 +16,8 @@ const Budget = require('./Budget');
 const FinancialGoal = require('./FinancialGoal');
 const SystemConfig = require('./SystemConfig');
 const FetchLog = require('./FetchLog');
+const Product = require('./Product');
+const ReceiptProduct = require('./ReceiptProduct');
 
 User.hasMany(UserSession, { foreignKey: 'user_id', as: 'sessions' });
 UserSession.belongsTo(User, { foreignKey: 'user_id', as: 'user' });
@@ -68,6 +70,12 @@ FinancialTransaction.belongsTo(FinancialCategory, { foreignKey: 'category_id', a
 FinancialCategory.hasMany(Budget, { foreignKey: 'category_id', as: 'budgets' });
 Budget.belongsTo(FinancialCategory, { foreignKey: 'category_id', as: 'category' });
 
+FinancialTransaction.hasMany(ReceiptProduct, { foreignKey: 'transaction_id', as: 'products' });
+ReceiptProduct.belongsTo(FinancialTransaction, { foreignKey: 'transaction_id', as: 'transaction' });
+
+Product.hasMany(ReceiptProduct, { foreignKey: 'product_id', as: 'receiptProducts' });
+ReceiptProduct.belongsTo(Product, { foreignKey: 'product_id', as: 'product' });
+
 module.exports = {
   sequelize,
   User,
@@ -85,5 +93,7 @@ module.exports = {
   Budget,
   FinancialGoal,
   SystemConfig,
-  FetchLog
+  FetchLog,
+  Product,
+  ReceiptProduct
 };

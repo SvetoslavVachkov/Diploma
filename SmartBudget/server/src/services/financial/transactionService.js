@@ -1,5 +1,6 @@
-const { FinancialTransaction, FinancialCategory, User } = require('../../models');
+const { FinancialTransaction, FinancialCategory, User, ReceiptProduct, AICache } = require('../../models');
 const { Op } = require('sequelize');
+const crypto = require('crypto');
 
 const createTransaction = async (userId, transactionData) => {
   try {
@@ -76,6 +77,39 @@ const updateTransaction = async (transactionId, userId, updateData) => {
     });
 
     await transaction.update(updateFields);
+    await transaction.reload({
+      include: [
+        {
+          model: FinancialCategory,
+          as: 'category',
+          attributes: ['id', 'name', 'type', 'icon', 'color']
+        },
+        {
+          model: ReceiptProduct,
+          as: 'products',
+          required: false,
+          attributes: ['id', 'product_name', 'quantity', 'unit_price', 'total_price', 'category', 'subcategory', 'health_info', 'tips']
+        }
+      ]
+    });
+
+    const { AICache } = require('../../models');
+    const crypto = require('crypto');
+    const CATEGORY_CACHE_VERSION = 'v2';
+    const generateCacheKey = (text, type) => {
+      const hash = crypto.createHash('sha256').update(`${type}:${text}`).digest('hex');
+      return `transaction_category_${CATEGORY_CACHE_VERSION}_${hash}`;
+    };
+
+    if (updateFields.description || updateFields.category_id) {
+      const description = updateFields.description || transaction.description;
+      if (description) {
+        const cacheKey = generateCacheKey(description, transaction.type);
+        await AICache.destroy({
+          where: { cache_key: cacheKey }
+        });
+      }
+    }
 
     return {
       success: true,
@@ -162,11 +196,19 @@ const getTransactions = async (userId, filters = {}, pagination = {}) => {
 
     const { count, rows } = await FinancialTransaction.findAndCountAll({
       where,
-      include: [{
+      include: [
+        {
         model: FinancialCategory,
         as: 'category',
         attributes: ['id', 'name', 'type', 'icon', 'color']
-      }],
+        },
+        {
+          model: ReceiptProduct,
+          as: 'products',
+          required: false,
+          attributes: ['id', 'product_name', 'quantity', 'unit_price', 'total_price', 'category', 'subcategory', 'health_info', 'tips']
+        }
+      ],
       order: [['transaction_date', 'DESC'], ['created_at', 'DESC']],
       limit,
       offset
@@ -174,7 +216,10 @@ const getTransactions = async (userId, filters = {}, pagination = {}) => {
 
     return {
       success: true,
-      transactions: rows.map(t => t.toJSON()),
+      transactions: rows.map(t => {
+        const json = t.toJSON();
+        return json;
+      }),
       pagination: {
         page,
         limit,
@@ -197,11 +242,19 @@ const getTransactionById = async (transactionId, userId) => {
         id: transactionId,
         user_id: userId
       },
-      include: [{
+      include: [
+        {
         model: FinancialCategory,
         as: 'category',
         attributes: ['id', 'name', 'type', 'icon', 'color']
-      }]
+        },
+        {
+          model: ReceiptProduct,
+          as: 'products',
+          required: false,
+          attributes: ['id', 'product_name', 'quantity', 'unit_price', 'total_price', 'category', 'subcategory', 'health_info', 'tips']
+        }
+      ]
     });
 
     if (!transaction) {
@@ -246,28 +299,30 @@ const getTransactionSummary = async (userId, dateFrom, dateTo) => {
     });
 
     const totalIncome = transactions
-      .filter(t => t.type === 'income')
-      .reduce((sum, t) => sum + parseFloat(t.amount), 0);
+      .filter(t => t && t.type === 'income')
+      .reduce((sum, t) => sum + Math.abs(parseFloat(t.amount || 0)), 0);
 
     const totalExpense = transactions
-      .filter(t => t.type === 'expense')
-      .reduce((sum, t) => sum + parseFloat(t.amount), 0);
+      .filter(t => t && t.type === 'expense')
+      .reduce((sum, t) => sum + Math.abs(parseFloat(t.amount || 0)), 0);
 
     const balance = totalIncome - totalExpense;
 
     const byCategory = {};
     transactions.forEach(t => {
+      if (!t) return;
       const catId = t.category_id;
+      const catName = (t.category && t.category.name) ? t.category.name : 'Други';
       if (!byCategory[catId]) {
         byCategory[catId] = {
-          category: t.category.name,
-          type: t.category.type,
+          category: catName,
+          type: t.category?.type || t.type || 'expense',
           count: 0,
           total: 0
         };
       }
       byCategory[catId].count++;
-      byCategory[catId].total += parseFloat(t.amount);
+      byCategory[catId].total += Math.abs(parseFloat(t.amount || 0));
     });
 
     return {

@@ -4,6 +4,8 @@ import api from '../services/api';
 const Goals = () => {
   const [goals, setGoals] = useState([]);
   const [summary, setSummary] = useState(null);
+  const [advice, setAdvice] = useState(null);
+  const [adviceLoading, setAdviceLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [formData, setFormData] = useState({
@@ -17,6 +19,7 @@ const Goals = () => {
 
   useEffect(() => {
     fetchData();
+    fetchAdvice();
   }, []);
 
   const fetchData = async () => {
@@ -29,11 +32,24 @@ const Goals = () => {
       setGoals(goalsRes.data.data || []);
       setSummary(summaryRes.data.data || null);
     } catch (error) {
-      console.error('Error fetching goals:', error);
       setGoals([]);
       setSummary(null);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchAdvice = async () => {
+    try {
+      setAdviceLoading(true);
+      const response = await api.get('/financial/goals/advice');
+      if (response.data.status === 'success') {
+        setAdvice(response.data.data);
+      }
+    } catch (error) {
+      setAdvice(null);
+    } finally {
+      setAdviceLoading(false);
     }
   };
 
@@ -52,7 +68,6 @@ const Goals = () => {
       });
       fetchData();
     } catch (error) {
-      console.error('Error creating goal:', error);
       alert('Грешка при създаване на цел: ' + (error.response?.data?.message || 'Неизвестна грешка'));
     }
   };
@@ -62,7 +77,6 @@ const Goals = () => {
       await api.post(`/financial/goals/${goalId}/add`, { amount });
       fetchData();
     } catch (error) {
-      console.error('Error adding to goal:', error);
       alert('Грешка при добавяне на сума: ' + (error.response?.data?.message || 'Неизвестна грешка'));
     }
   };
@@ -73,7 +87,6 @@ const Goals = () => {
         await api.delete(`/financial/goals/${id}`);
         fetchData();
       } catch (error) {
-        console.error('Error deleting goal:', error);
         alert('Грешка при изтриване на цел: ' + (error.response?.data?.message || 'Неизвестна грешка'));
       }
     }
@@ -110,6 +123,26 @@ const Goals = () => {
             <h3 style={styles.summaryTitle}>Общ прогрес</h3>
             <p style={styles.summaryValue}>{summary.total_progress.toFixed(1)}%</p>
           </div>
+        </div>
+      )}
+
+      {(adviceLoading || (advice && advice.advice && advice.advice.length > 0)) && (
+        <div style={styles.adviceSection}>
+          <h2 style={styles.adviceTitle}>AI Съвети за постигане на цели</h2>
+          {adviceLoading ? (
+            <p style={styles.empty}>Зареждане на съвети...</p>
+          ) : advice?.advice && advice.advice.length > 0 ? (
+            <div style={styles.adviceContainer}>
+              {advice.advice.map((tip, index) => (
+                <div key={index} style={styles.adviceItem}>
+                  <span style={styles.adviceIcon}>💡</span>
+                  <p style={styles.adviceText}>{tip}</p>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p style={styles.empty}>Няма налични съвети</p>
+          )}
         </div>
       )}
 
@@ -202,7 +235,7 @@ const Goals = () => {
                 </div>
                 <div style={styles.progressInfo}>
                   <span style={styles.progressText}>
-                    {parseFloat(goal.current_amount).toFixed(2)} / {parseFloat(goal.target_amount).toFixed(2)} лв
+                    {parseFloat(goal.current_amount).toFixed(2)} / {parseFloat(goal.target_amount).toFixed(2)} €
                   </span>
                   <span style={styles.progressPercent}>{goal.progress.toFixed(1)}%</span>
                 </div>
@@ -506,6 +539,43 @@ const styles = {
     color: 'white',
     fontSize: '18px',
     padding: '40px'
+  },
+  adviceSection: {
+    background: 'white',
+    borderRadius: '16px',
+    padding: '30px',
+    boxShadow: '0 4px 20px rgba(0,0,0,0.1)',
+    marginBottom: '30px'
+  },
+  adviceTitle: {
+    fontSize: '24px',
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: '20px'
+  },
+  adviceContainer: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '16px'
+  },
+  adviceItem: {
+    display: 'flex',
+    alignItems: 'flex-start',
+    gap: '12px',
+    padding: '16px',
+    background: '#f0f9ff',
+    borderRadius: '8px',
+    borderLeft: '4px solid #3b82f6'
+  },
+  adviceIcon: {
+    fontSize: '20px',
+    flexShrink: 0
+  },
+  adviceText: {
+    fontSize: '16px',
+    color: '#333',
+    lineHeight: '1.6',
+    margin: 0
   }
 };
 
