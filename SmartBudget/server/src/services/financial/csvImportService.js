@@ -984,18 +984,46 @@ const importCSVTransactions = async (userId, filePath, options = {}) => {
         }
 
         let aiError = null;
+        let aiParsed = [];
+        let fallbackParsed = [];
+        
         try {
-          const aiParsed = await parseStatementWithAI(pdfText, { apiKey: aiKey, model: aiModel });
-          if (aiParsed.length > 0) {
-            parsedTransactions = aiParsed;
-          } else {
-            parsedTransactions = parseBankStatementText(pdfText);
-          }
+          aiParsed = await parseStatementWithAI(pdfText, { apiKey: aiKey, model: aiModel });
         } catch (e) {
           aiError = e;
-          parsedTransactions = parseBankStatementText(pdfText);
         }
         
+        try {
+          fallbackParsed = parseBankStatementText(pdfText);
+        } catch (e) {
+        }
+        
+        const seenKeys = new Set();
+        parsedTransactions = [];
+        
+        for (const tx of aiParsed) {
+          const key = `${tx.date}_${tx.amount.toFixed(2)}_${tx.description.substring(0, 30)}`;
+          if (!seenKeys.has(key)) {
+            parsedTransactions.push(tx);
+            seenKeys.add(key);
+          }
+        }
+        
+        for (const tx of fallbackParsed) {
+          const key = `${tx.date}_${tx.amount.toFixed(2)}_${tx.description.substring(0, 30)}`;
+          if (!seenKeys.has(key)) {
+            parsedTransactions.push(tx);
+            seenKeys.add(key);
+          }
+        }
+        
+        if (parsedTransactions.length === 0 && aiError) {
+          return {
+            success: false,
+            error: `AI PDF parsing failed (${aiError.message}). Fallback parsing also found no transactions.`
+          };
+        }
+  
         if (parsedTransactions.length === 0) {
           return {
             success: false,
@@ -1016,7 +1044,7 @@ const importCSVTransactions = async (userId, filePath, options = {}) => {
             const avgTransaction = totalAmount / parsedTransactions.length;
             if (avgTransaction > 0) {
               expectedTotal = Math.round((totalOut + totalIn) / avgTransaction);
-            }
+  }
           }
         }
         
@@ -1032,8 +1060,8 @@ const importCSVTransactions = async (userId, filePath, options = {}) => {
             finalType = 'expense';
           } else if (descLower.includes('transfer from') && !descLower.includes('transfer to')) {
             finalType = 'income';
-          }
-          
+  }
+  
           return {
             date: tx.date,
             amount: finalType === 'income' ? tx.amount.toString() : `-${tx.amount.toString()}`,
@@ -1117,7 +1145,7 @@ const importCSVTransactions = async (userId, filePath, options = {}) => {
             amount = -Math.abs(amount);
           } else if (normalized.type === 'income') {
             amount = Math.abs(amount);
-          }
+      }
         }
       }
       
@@ -1194,13 +1222,13 @@ const importCSVTransactions = async (userId, filePath, options = {}) => {
       } else {
         try {
           const categorizationOptions = {
-            hfApiKey: process.env.HF_TXN_API_KEY,
-            hfModel: process.env.HF_TXN_MODEL,
+            groqApiKey: process.env.GROQ_API_KEY,
+            groqModel: process.env.GROQ_MODEL || 'llama-3.1-8b-instant',
             transactionType: transactionType,
             userId
           };
           categorization = await categorizeTransaction(description, absAmount, categorizationOptions);
-          
+      
           if (categorization.success && categorization.result) {
             if (categorization.result.type !== transactionType) {
               categorization.result.type = transactionType;

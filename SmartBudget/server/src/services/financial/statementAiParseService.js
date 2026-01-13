@@ -43,21 +43,29 @@ const parseStatementWithAI = async (statementText, { apiKey, model } = {}) => {
   }
 
   const text = String(statementText);
-  const clipped = text.length > 12000 ? text.slice(0, 12000) : text;
+  const clipped = text.length > 20000 ? text.slice(0, 20000) : text;
 
-  const prompt = `You are an expert bank statement parser.
-Extract all transactions from the statement text below and return ONLY valid JSON (no markdown).
+  const prompt = `You are an expert bank statement parser. Extract ALL transactions from the statement text below. Be thorough and extract every single transaction you can find.
 
-Return a JSON array of objects with EXACT keys:
-- date: string in YYYY-MM-DD (preferred) OR DD.MM.YYYY if not possible
-- description: string (merchant / reason), keep it short but meaningful
-- amount: number (POSITIVE, no sign)
+Return ONLY valid JSON array (no markdown, no explanations, just the JSON array).
+
+Each transaction must have EXACT keys:
+- date: string in YYYY-MM-DD format (preferred) OR DD.MM.YYYY if not possible
+- description: string (merchant name or transaction reason), keep it short but meaningful (max 200 chars)
+- amount: number (POSITIVE value, no sign, no negative numbers)
 - type: "income" or "expense"
 
-Rules:
-- "Дт" means expense, "Кт" means income.
-- Ignore balances and running totals; pick the transaction amount, not the balance after operation.
-- If both BGN and EUR are present (e.g. "X BGN (Y EUR)" or "X EUR (Y BGN)"), use the EUR amount.
+CRITICAL RULES:
+1. Extract EVERY transaction you see, even if they look similar or have small amounts
+2. "Дт" (Debit) means expense, "Кт" (Credit) means income
+3. "Money in", "Transfer from", "Deposit", "Refund", "Exchanged to", "Apple Pay deposit" = income
+4. "Money out", "Transfer to", "Withdrawal", "Payment", "Cash withdrawal" = expense
+5. Ignore balances, running totals, and summary lines - only extract actual transactions
+6. If both BGN and EUR are present (e.g. "X BGN (Y EUR)" or "X EUR (Y BGN)"), always use the EUR amount
+7. Look for transactions across multiple pages and sections
+8. If a transaction spans multiple lines, combine them into one transaction
+9. Extract transactions even if the format is slightly different or unusual
+10. Do not skip any transactions - be exhaustive
 
 STATEMENT TEXT:
 ${clipped}`;
@@ -66,32 +74,12 @@ ${clipped}`;
   try {
     const endpoints = [
       `https://api-inference.huggingface.co/models/${model}`,
-      `https://inference-api.huggingface.co/models/${model}`
-    ];
-    
-    let lastError = null;
-    for (const endpoint of endpoints) {
-      try {
-        response = await axios.post(
-          endpoint,
-          {
-            inputs: prompt,
-            parameters: {
-              max_new_tokens: 1200,
-              return_full_text: false,
-              temperature: 0.2
-            }
-          },
-          {
-            headers: {
-              Authorization: `Bearer ${apiKey}`,
-              'Content-Type': 'application/json'
-            },
-            timeout: 60000
-          }
-        );
-        if (response.status === 200 || response.status === 201) {
-          break;
+      {
+        inputs: prompt,
+        parameters: {
+          max_new_tokens: 2000,
+          return_full_text: false,
+          temperature: 0.1
         }
       } catch (endpointError) {
         lastError = endpointError;

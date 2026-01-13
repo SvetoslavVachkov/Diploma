@@ -1,4 +1,4 @@
-const { FinancialTransaction, FinancialCategory, Budget } = require('../../models');
+const { FinancialTransaction, FinancialCategory, Budget, ReceiptProduct } = require('../../models');
 const { Op } = require('sequelize');
 const axios = require('axios');
 
@@ -21,17 +21,22 @@ const analyzeSpendingPatterns = async (userId, periodDays = 90) => {
         model: FinancialCategory,
         as: 'category',
         attributes: ['id', 'name', 'type']
+      }, {
+        model: ReceiptProduct,
+        as: 'products',
+        required: false,
+        attributes: ['id', 'product_name', 'quantity', 'unit_price', 'total_price', 'category', 'subcategory']
       }]
     });
 
     const categoryTotals = {};
     const monthlySpending = {};
-    const averageDaily = {};
+    const productFrequency = {};
 
     transactions.forEach(t => {
       const catId = t.category_id;
-      const catName = t.category.name;
-      const amount = parseFloat(t.amount);
+      const catName = t.category?.name || 'Unknown';
+      const amount = Math.abs(parseFloat(t.amount || 0));
       const date = new Date(t.transaction_date);
       const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
 
@@ -51,15 +56,38 @@ const analyzeSpendingPatterns = async (userId, periodDays = 90) => {
         monthlySpending[monthKey] = 0;
       }
       monthlySpending[monthKey] += amount;
+
+      if (t.products && t.products.length > 0) {
+        t.products.forEach(p => {
+          const productName = p.product_name || '';
+          if (productName) {
+            if (!productFrequency[productName]) {
+              productFrequency[productName] = {
+                name: productName,
+                count: 0,
+                total: 0,
+                category: p.category || null,
+                subcategory: p.subcategory || null
+              };
+            }
+            productFrequency[productName].count += parseFloat(p.quantity || 1);
+            productFrequency[productName].total += Math.abs(parseFloat(p.total_price || 0));
+          }
+        });
+      }
     });
 
     Object.keys(categoryTotals).forEach(catId => {
       categoryTotals[catId].average = categoryTotals[catId].total / Math.max(categoryTotals[catId].count, 1);
     });
 
-    const totalSpent = transactions.reduce((sum, t) => sum + parseFloat(t.amount), 0);
+    const totalSpent = transactions.reduce((sum, t) => sum + Math.abs(parseFloat(t.amount || 0)), 0);
     const days = Math.max(1, Math.floor((endDate - startDate) / (1000 * 60 * 60 * 24)));
     const dailyAverage = totalSpent / days;
+
+    const topProducts = Object.values(productFrequency)
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 20);
 
     const budgets = await Budget.findAll({
       where: {
@@ -110,7 +138,8 @@ const analyzeSpendingPatterns = async (userId, periodDays = 90) => {
         category_totals: Object.values(categoryTotals).sort((a, b) => b.total - a.total),
         monthly_spending: monthlySpending,
         budget_status: budgetStatus,
-        transaction_count: transactions.length
+        transaction_count: transactions.length,
+        top_products: topProducts
       }
     };
   } catch (error) {
@@ -123,88 +152,107 @@ const analyzeSpendingPatterns = async (userId, periodDays = 90) => {
 
 const generateAdviceWithAI = async (spendingData, options = {}) => {
   try {
-    const hfApiKey = options.hfApiKey || process.env.HF_TXN_API_KEY;
-    const hfModel = options.hfModel || process.env.HF_TXN_MODEL || 'mistralai/Mistral-7B-Instruct-v0.2';
+    const groqApiKey = options.groqApiKey || process.env.GROQ_API_KEY;
+    const groqModel = options.groqModel || process.env.GROQ_MODEL || 'llama-3.1-8b-instant';
 
-    if (!hfApiKey) {
+    if (!groqApiKey) {
       return generateAdviceWithRules(spendingData);
     }
 
+    const topProducts = (spendingData.top_products || []).slice(0, 15);
+    
     const financialData = {
       period: {
         days: spendingData.period_days,
         total_spent: spendingData.total_spent,
         daily_average: spendingData.daily_average
       },
-      categories: spendingData.category_totals.map(c => ({
+      categories: (spendingData.category_totals || []).map(c => ({
         name: c.category_name,
         total: c.total,
         count: c.count,
         average: c.average
       })),
-      budgets: spendingData.budget_status.map(b => ({
+      budgets: (spendingData.budget_status || []).map(b => ({
         category: b.category_name,
         budget: b.budget_amount,
         spent: b.spent_amount,
         percentage: b.percentage,
         over_budget: b.over_budget
+      })),
+      top_products: topProducts.map(p => ({
+        name: p.name,
+        count: p.count,
+        total_spent: p.total,
+        category: p.category,
+        subcategory: p.subcategory
       }))
     };
+    
+    const prompt = `Ти си финансов анализатор. Анализирай тези финансови данни и дай обективни, конкретни наблюдения и съвети на български език.
 
-    const prompt = `You are a financial advisor. Analyze this JSON financial data and provide specific, actionable money-saving advice in Bulgarian.
+Финансови данни:
+Период: ${financialData.period.days} дни
+Общо разходи: ${financialData.period.total_spent.toFixed(2)} €
+Средно на ден: ${financialData.period.daily_average.toFixed(2)} €
 
-Financial Data (JSON):
-${JSON.stringify(financialData, null, 2)}
+Топ категории разходи:
+${financialData.categories.length > 0 ? financialData.categories.map((c, i) => `${i + 1}. ${c.name}: ${c.total.toFixed(2)} € (${c.count} транзакции, средно ${c.average.toFixed(2)} €)`).join('\n') : 'Няма данни'}
 
-Instructions:
-- Analyze spending patterns from the JSON
-- If user spends a lot on "Гориво" (fuel), suggest public transport, carpooling, walking, or fuel-efficient driving
-- If user spends a lot on "Храна" (food), suggest meal planning, cooking at home, buying in bulk, or finding cheaper stores
-- If user spends a lot on subscriptions or services, suggest canceling unused ones
-- Give 3-5 specific tips based on actual spending data
-- Include specific amounts and percentages from the data
-- Be practical and actionable
+${financialData.budgets.length > 0 ? `Бюджети:\n${financialData.budgets.map(b => `${b.category}: Бюджет ${b.budget.toFixed(2)} €, Разходи ${b.spent.toFixed(2)} € (${b.percentage.toFixed(1)}%)${b.over_budget ? ' - ПРЕВИШЕН' : ''}`).join('\n')}` : ''}
 
-Provide your advice:`;
+${topProducts.length > 0 ? `Най-често купувани продукти:\n${topProducts.map((p, i) => `${i + 1}. ${p.name}: ${p.count} броя, общо ${p.total_spent.toFixed(2)} €${p.category ? ` (${p.category}${p.subcategory ? ` - ${p.subcategory}` : ''})` : ''}`).join('\n')}` : ''}
+
+Инструкции:
+- Анализирай моделите на разходи и покупки от данните
+- Кажи какво виждаш в данните - какви са основните разходи, какви продукти се купуват най-често
+- Давай обективни наблюдения базирани на реалните данни (категории, продукти, суми)
+- Ако виждаш често купувани продукти, коментирай трендовете
+- Ако виждаш много разходи в определена категория, дай конкретни наблюдения
+- Давай 3-5 конкретни наблюдения/съвета базирани на реалните данни
+- Включвай конкретни суми, продукти, категории от данните
+- Бъди обективен - кажи каквото виждаш в данните
+- Отговори на български език
+- Всеки съвет да бъде на отделен ред или маркиран с номер/тире`;
 
     try {
       const response = await axios.post(
-        `https://api-inference.huggingface.co/models/${hfModel}`,
+        'https://api.groq.com/openai/v1/chat/completions',
         {
-          inputs: prompt,
-          parameters: {
-            max_new_tokens: 400,
-            temperature: 0.7,
-            return_full_text: false
-          }
+          model: groqModel,
+          messages: [
+            {
+              role: 'system',
+              content: 'Ти си финансов анализатор. Анализирай финансовите данни обективно и дай конкретни наблюдения за разходите, категориите и продуктите. Кажи каквото виждаш в данните - трендове, най-често купувани продукти, основни разходи. Бъди обективен и конкретен. Отговори на български език.'
+            },
+            {
+              role: 'user',
+              content: prompt
+            }
+          ],
+          temperature: 0.7,
+          max_tokens: 600
         },
         {
           headers: {
-            Authorization: `Bearer ${hfApiKey}`,
+            'Authorization': `Bearer ${groqApiKey}`,
             'Content-Type': 'application/json'
           },
           timeout: 30000
         }
       );
 
-      let aiText = '';
-      if (Array.isArray(response.data)) {
-        const first = response.data[0];
-        if (first && typeof first.generated_text === 'string') {
-          aiText = first.generated_text.trim();
-        }
-      } else if (response.data && typeof response.data.generated_text === 'string') {
-        aiText = response.data.generated_text.trim();
-      }
-
-      if (aiText) {
-        const tips = extractTipsFromText(aiText);
-        if (tips.length > 0) {
-          return {
-            success: true,
-            advice: tips,
-            source: 'ai'
-          };
+      if (response.data && response.data.choices && response.data.choices.length > 0) {
+        const content = response.data.choices[0].message?.content?.trim() || '';
+        if (content) {
+          const tips = extractTipsFromText(content);
+          if (tips.length > 0) {
+        return {
+          success: true,
+          advice: tips,
+          source: 'ai'
+        };
+          }
         }
       }
     } catch (error) {
@@ -243,24 +291,36 @@ const generateAdviceWithRules = (spendingData) => {
   const topCategories = spendingData.category_totals.slice(0, 3);
   const overBudget = spendingData.budget_status.filter(b => b.over_budget);
 
+  const topProducts = spendingData.top_products || [];
+
   if (topCategories.length > 0) {
     const topCategory = topCategories[0];
-    advice.push(`Най-много харчите за ${topCategory.category_name} (${topCategory.total.toFixed(2)} лв). Прегледайте тези разходи и потърсете начини за оптимизация.`);
+    advice.push(`Най-много разходи в категория "${topCategory.category_name}" - ${topCategory.total.toFixed(2)} € (${topCategory.count} транзакции, средно ${topCategory.average.toFixed(2)} € на транзакция).`);
+  }
+
+  if (topProducts.length > 0) {
+    const topProduct = topProducts[0];
+    advice.push(`Най-често купуван продукт: "${topProduct.name}" - ${topProduct.count} броя за общо ${topProduct.total.toFixed(2)} €.`);
   }
 
   if (overBudget.length > 0) {
     overBudget.forEach(budget => {
-      advice.push(`Превишихте бюджета за ${budget.category_name} с ${(budget.percentage - 100).toFixed(0)}%. Намалете разходите в тази категория.`);
+      advice.push(`Бюджет за "${budget.category_name}" е превишен с ${(budget.percentage - 100).toFixed(0)}% (разходи: ${budget.spent_amount.toFixed(2)} €, бюджет: ${budget.budget_amount.toFixed(2)} €).`);
     });
   }
 
-  if (spendingData.daily_average > 50) {
-    advice.push(`Средно харчите ${spendingData.daily_average.toFixed(2)} лв на ден. Задайте дневен лимит за разходи, за да контролирате по-добре финансите си.`);
+  if (topProducts.length > 1) {
+    const secondProduct = topProducts[1];
+    advice.push(`Вторият най-често купуван продукт е "${secondProduct.name}" - ${secondProduct.count} броя.`);
   }
 
   if (topCategories.length > 1) {
     const secondCategory = topCategories[1];
-    advice.push(`Втората ви най-голяма категория е ${secondCategory.category_name}. Сравнете цените и потърсете по-евтини алтернативи.`);
+    advice.push(`Втора категория по разходи: "${secondCategory.category_name}" - ${secondCategory.total.toFixed(2)} €.`);
+  }
+
+  if (spendingData.daily_average > 0) {
+    advice.push(`Средно ${spendingData.daily_average.toFixed(2)} € на ден за периода от ${spendingData.period_days} дни.`);
   }
 
   if (advice.length === 0) {
@@ -288,8 +348,8 @@ const getMoneyAdvice = async (userId, options = {}) => {
     }
 
     const adviceResult = await generateAdviceWithAI(spendingAnalysis.data, {
-      hfApiKey: process.env.HF_TXN_API_KEY,
-      hfModel: process.env.HF_TXN_MODEL
+      groqApiKey: process.env.GROQ_API_KEY,
+      groqModel: process.env.GROQ_MODEL || 'llama-3.1-8b-instant'
     });
 
     return {

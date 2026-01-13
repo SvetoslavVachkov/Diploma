@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const { importCSVTransactions } = require('../services/financial/csvImportService');
 const { generateSpendingReport } = require('../services/financial/spendingReportService');
+const { generateProfessionalReportAnalysis } = require('../services/financial/reportAnalysisService');
 const { authenticateToken } = require('../middleware/auth');
 
 const uploadDir = path.join(__dirname, '../../uploads');
@@ -100,10 +101,13 @@ const getSpendingReportHandler = async (req, res) => {
       });
     }
 
+    const skipAI = req.query.skip_ai === 'true' || req.query.skip_ai === true;
     const result = await generateSpendingReport(
       userId,
       req.query.date_from,
-      req.query.date_to
+      req.query.date_to,
+      req.query.search,
+      skipAI
     );
 
     if (result.success) {
@@ -126,9 +130,63 @@ const getSpendingReportHandler = async (req, res) => {
   }
 };
 
+const getReportAnalysisHandler = async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    
+    if (!userId) {
+      return res.status(401).json({
+        status: 'error',
+        message: 'Authentication required'
+      });
+    }
+
+    const reportResult = await generateSpendingReport(
+      userId,
+      req.query.date_from,
+      req.query.date_to,
+      req.query.search,
+      true
+    );
+
+    if (!reportResult.success || !reportResult.report) {
+      return res.status(400).json({
+        status: 'error',
+        message: reportResult.error || 'Failed to generate report data'
+      });
+    }
+
+    const analysisResult = await generateProfessionalReportAnalysis(reportResult.report, {
+      groqApiKey: process.env.GROQ_API_KEY,
+      groqModel: process.env.GROQ_MODEL || 'llama-3.1-8b-instant'
+    });
+
+    if (analysisResult.success) {
+      res.status(200).json({
+        status: 'success',
+        data: {
+          ai_analysis: analysisResult.analysis
+        }
+      });
+    } else {
+      res.status(400).json({
+        status: 'error',
+        message: analysisResult.error || 'Failed to generate AI analysis'
+      });
+    }
+  } catch (error) {
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to generate report analysis',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   importCSVHandler,
   getSpendingReportHandler,
+  getReportAnalysisHandler,
   uploadCSV
 };
 

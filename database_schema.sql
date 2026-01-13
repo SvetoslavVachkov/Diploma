@@ -204,6 +204,39 @@ CREATE TABLE financial_goals (
     INDEX idx_user_goals (user_id, is_achieved)
 );
 
+CREATE TABLE products (
+    id VARCHAR(36) PRIMARY KEY DEFAULT (UUID()),
+    name VARCHAR(255) NOT NULL,
+    normalized_name VARCHAR(255),
+    category VARCHAR(100),
+    subcategory VARCHAR(100),
+    health_info JSON,
+    tips JSON,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_normalized_name (normalized_name(100)),
+    INDEX idx_category (category)
+);
+
+CREATE TABLE receipt_products (
+    id VARCHAR(36) PRIMARY KEY DEFAULT (UUID()),
+    transaction_id VARCHAR(36) NOT NULL,
+    product_id VARCHAR(36),
+    product_name VARCHAR(255) NOT NULL,
+    quantity DECIMAL(10,2) DEFAULT 1.00,
+    unit_price DECIMAL(15,2),
+    total_price DECIMAL(15,2) NOT NULL,
+    category VARCHAR(100),
+    subcategory VARCHAR(100),
+    health_info JSON,
+    tips JSON,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (transaction_id) REFERENCES financial_transactions(id) ON DELETE CASCADE,
+    FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE SET NULL,
+    INDEX idx_transaction (transaction_id),
+    INDEX idx_product (product_id)
+);
+
 CREATE TABLE system_config (
     id VARCHAR(36) PRIMARY KEY DEFAULT (UUID()),
     `key` VARCHAR(100) NOT NULL UNIQUE,

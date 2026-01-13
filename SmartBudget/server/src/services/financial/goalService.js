@@ -331,6 +331,140 @@ const getGoalsSummary = async (userId) => {
   }
 };
 
+const getGoalAdvice = async (userId) => {
+  try {
+    const { FinancialTransaction } = require('../../models');
+    const { Op } = require('sequelize');
+    
+    const goals = await FinancialGoal.findAll({
+      where: { user_id: userId }
+    });
+
+    if (goals.length === 0) {
+      return {
+        success: true,
+        advice: []
+      };
+    }
+
+    const endDate = new Date();
+    const startDate = new Date();
+    startDate.setMonth(startDate.getMonth() - 3);
+
+    const transactions = await FinancialTransaction.findAll({
+      where: {
+        user_id: userId,
+        transaction_date: {
+          [Op.gte]: startDate,
+          [Op.lte]: endDate
+        }
+      }
+    });
+
+    const totalExpenses = transactions
+      .filter(t => t.type === 'expense')
+      .reduce((sum, t) => sum + Math.abs(parseFloat(t.amount)), 0);
+
+    const totalIncome = transactions
+      .filter(t => t.type === 'income')
+      .reduce((sum, t) => sum + Math.abs(parseFloat(t.amount)), 0);
+
+    const goalsData = goals.map(g => ({
+      title: g.title,
+      target_amount: parseFloat(g.target_amount),
+      current_amount: parseFloat(g.current_amount),
+      progress: parseFloat(g.target_amount) > 0 ? (parseFloat(g.current_amount) / parseFloat(g.target_amount)) * 100 : 0,
+      goal_type: g.goal_type,
+      target_date: g.target_date,
+      is_achieved: g.is_achieved,
+      remaining: Math.max(0, parseFloat(g.target_amount) - parseFloat(g.current_amount))
+    }));
+
+    const groqApiKey = process.env.GROQ_API_KEY;
+    const groqModel = process.env.GROQ_MODEL || 'llama-3.1-8b-instant';
+
+    if (!groqApiKey) {
+      return {
+        success: true,
+        advice: []
+      };
+    }
+
+    try {
+      const axios = require('axios');
+      const prompt = `Ти си финансов съветник. Анализирай финансовите цели и транзакции на потребителя и дай конкретни съвети как да постигне целите си.
+
+Финансови данни (последни 3 месеца):
+- Приходи: ${totalIncome.toFixed(2)} лв
+- Разходи: ${totalExpenses.toFixed(2)} лв
+- Спестявания потенциал: ${(totalIncome - totalExpenses).toFixed(2)} лв
+
+Финансови цели:
+${goalsData.map((g, i) => `${i + 1}. ${g.title} (${g.goal_type}): ${g.current_amount.toFixed(2)} / ${g.target_amount.toFixed(2)} лв (${g.progress.toFixed(1)}%) - остава ${g.remaining.toFixed(2)} лв${g.target_date ? ` до ${new Date(g.target_date).toLocaleDateString('bg-BG')}` : ''}${g.is_achieved ? ' - ПОСТИГНАТА' : ''}`).join('\n')}
+
+Давай 3-5 конкретни съвета на български език как потребителят може да постигне целите си:
+- Анализирай прогреса по всяка цел
+- Предложи стратегии за спестяване базирани на текущите разходи
+- Давай практични съвети за всяка цел според типа й (спестяване, изплащане на дълг, инвестиция, покупка)
+- Ако има недостигащи цели, предложи как да ускори напредъка
+- Бъди конкретен с числа и дати
+- Всеки съвет да бъде на отделен ред`;
+
+      const response = await axios.post(
+        'https://api.groq.com/openai/v1/chat/completions',
+        {
+          model: groqModel,
+          messages: [
+            {
+              role: 'system',
+              content: 'Ти си експертен финансов съветник. Давай практични, конкретни съвети за постигане на финансови цели базирани на реални данни.'
+            },
+            {
+              role: 'user',
+              content: prompt
+            }
+          ],
+          temperature: 0.7,
+          max_tokens: 600
+        },
+        {
+          headers: {
+            'Authorization': `Bearer ${groqApiKey}`,
+            'Content-Type': 'application/json'
+          },
+          timeout: 30000
+        }
+      );
+
+      if (response.data && response.data.choices && response.data.choices.length > 0) {
+        const content = response.data.choices[0].message?.content?.trim() || '';
+        if (content) {
+          const lines = content.split('\n').filter(l => l.trim().length > 20);
+          const advice = lines.slice(0, 5).map(l => l.trim().replace(/^\d+[\.\)]\s*/, '').replace(/^[-•]\s*/, ''));
+          
+          if (advice.length > 0) {
+            return {
+              success: true,
+              advice: advice
+            };
+          }
+        }
+      }
+    } catch (error) {
+    }
+
+    return {
+      success: true,
+      advice: []
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+};
+
 module.exports = {
   createGoal,
   updateGoal,
@@ -338,6 +472,7 @@ module.exports = {
   getGoals,
   getGoalById,
   addToGoal,
-  getGoalsSummary
+  getGoalsSummary,
+  getGoalAdvice
 };
 

@@ -118,83 +118,86 @@ const extractMerchantName = (description) => {
   };
 };
 
-const classifyMerchantWithAI = async (merchantName, description, allCategories, apiKey, model) => {
-  if (!apiKey || !model || allCategories.length === 0) {
+const classifyMerchantWithGroq = async (merchantName, description, allCategories, apiKey, model) => {
+  if (!apiKey || allCategories.length === 0) {
     return null;
   }
 
   try {
     const categoryList = allCategories.map(c => c.name).join(', ');
-    const enhancedPrompt = `Analyze this business/merchant and classify the transaction. Merchant name: "${merchantName}". Full description: "${description}". 
-    
-Consider what type of business this is (restaurant, gas station, supermarket, etc.) and classify into one of these categories: ${categoryList}.
-    
-For example:
-- If merchant contains "pizza", "domino", "restaurant" -> likely "Храна"
-- If merchant contains "lukoil", "gas", "fuel" -> likely "Гориво"  
-- If merchant contains "supermarket", "billa", "kaufland" -> likely "Храна"
-- If merchant contains "bank", "transfer" -> likely "Преводи" or "Трансфери"
-    
-Return only the category name that best matches the business type.`;
-    
-    const payload = {
-      inputs: enhancedPrompt,
-      parameters: {
-        candidate_labels: allCategories.map(c => c.name),
-        multi_label: false
-      }
-    };
+    const prompt = `Analyze this business/merchant and classify the transaction into the most appropriate category.
+
+Merchant name: "${merchantName}"
+Full description: "${description}"
+
+Available categories: ${categoryList}
+
+Rules:
+- If merchant contains "pizza", "domino", "restaurant", "cafe", "food" -> classify as "Храна"
+- If merchant contains "lukoil", "omv", "shell", "gas", "fuel", "бензин", "гориво" -> classify as "Гориво"
+- If merchant contains "supermarket", "billa", "kaufland", "lidl", "fantastico", "магазин" -> classify as "Храна"
+- If merchant contains "bank", "transfer", "трансфер" -> classify as "Преводи" or "Трансфери" if available
+- If merchant contains "taxi", "uber", "bolt", "автобус", "метро" -> classify as "Транспорт"
+- If merchant contains "apartment", "rent", "наем", "квартира" -> classify as "Наем"
+- If merchant contains "utility", "electricity", "water", "комунални", "ток" -> classify as "Комунални"
+- Analyze the business type and choose the most appropriate category from the list.
+
+Return ONLY the category name that best matches.`;
 
     const response = await axios.post(
-      `https://api-inference.huggingface.co/models/${model}`,
-      payload,
+      'https://api.groq.com/openai/v1/chat/completions',
+      {
+        model: model || 'llama-3.1-8b-instant',
+        messages: [
+          {
+            role: 'system',
+            content: 'You are an expert financial transaction classifier. Always return only the category name from the provided list, nothing else.'
+          },
+          {
+            role: 'user',
+            content: prompt
+          }
+        ],
+        temperature: 0.3,
+        max_tokens: 50
+      },
       {
         headers: {
-          Authorization: `Bearer ${apiKey}`,
+          'Authorization': `Bearer ${apiKey}`,
           'Content-Type': 'application/json'
         },
-        timeout: 20000
+        timeout: 15000
       }
     );
 
-    if (!response.data || !response.data.labels || !response.data.scores) {
-      return null;
-    }
-
-    const topLabel = response.data.labels[0];
-    const topScore = response.data.scores[0];
-
-    if (!topLabel || !topScore || topScore < 0.15) {
-      return null;
-    }
-
-    const matched = allCategories.find(c => {
-      const catLower = c.name.toLowerCase();
-      const labelLower = topLabel.toLowerCase();
-      return catLower === labelLower || 
-             labelLower.includes(catLower) || 
-             catLower.includes(labelLower) ||
-             catLower.split(' ').some(word => labelLower.includes(word)) ||
-             labelLower.split(' ').some(word => catLower.includes(word));
-    });
+    if (response.data && response.data.choices && response.data.choices.length > 0) {
+      const content = response.data.choices[0].message?.content?.trim() || '';
+      if (content) {
+        const categoryName = content.split('\n')[0].trim().replace(/['"]/g, '');
+        const matched = allCategories.find(c => {
+          const catLower = c.name.toLowerCase();
+          const contentLower = categoryName.toLowerCase();
+          return catLower === contentLower || 
+                 contentLower.includes(catLower) || 
+                 catLower.includes(contentLower);
+        });
     
-    if (!matched) {
-      return null;
-    }
-
+        if (matched) {
     return {
       categoryId: matched.id,
       categoryName: matched.name,
       type: matched.type,
-      confidence: topScore,
-      method: 'ai_merchant_recognition'
+            confidence: 0.9,
+            model: `groq-${model}`
     };
-  } catch (error) {
-    if (error.response && error.response.status === 401) {
-      throw new Error('Invalid Hugging Face API key');
+        }
+      }
     }
+
+    return null;
+  } catch (error) {
+    return null;
   }
-  return null;
 };
 
 const generateCategoryNameFromDescription = (description) => {
@@ -231,23 +234,23 @@ const generateCategoryNameFromDescription = (description) => {
       for (const word of words) {
         if (word === patternLower || word.startsWith(patternLower) || patternLower.startsWith(word)) {
           return categoryName;
-        }
-      }
+    }
+  }
     }
   }
 
   return null;
 };
 
-const classifyWithHuggingFace = async (text, categories, apiKey, model) => {
-  if (!apiKey || !model || categories.length === 0) {
+const classifyWithGroq = async (text, categories, apiKey, model) => {
+  if (!apiKey || categories.length === 0) {
     return null;
   }
 
   try {
     const categoryList = categories.map(c => c.name).join(', ');
-    const enhancedPrompt = `Analyze this transaction and classify it into the most appropriate category. 
-    
+    const prompt = `Analyze this transaction and classify it into the most appropriate category.
+
 Transaction description: "${text}"
 
 Available categories: ${categoryList}
@@ -258,66 +261,63 @@ Consider:
 - Merchant name patterns
 
 Return only the category name that best matches.`;
-    
-    const payload = {
-      inputs: enhancedPrompt,
-      inputs: prompt,
-      parameters: {
-        candidate_labels: categories.map(c => c.name),
-        multi_label: false
-      }
-    };
 
     const response = await axios.post(
-      `https://api-inference.huggingface.co/models/${model}`,
-      payload,
+      'https://api.groq.com/openai/v1/chat/completions',
+      {
+        model: model || 'llama-3.1-8b-instant',
+        messages: [
+          {
+            role: 'system',
+            content: 'You are an expert financial transaction classifier. Always return only the category name from the provided list, nothing else.'
+          },
+          {
+            role: 'user',
+            content: prompt
+          }
+        ],
+        temperature: 0.3,
+        max_tokens: 50
+      },
       {
         headers: {
-          Authorization: `Bearer ${apiKey}`,
+          'Authorization': `Bearer ${apiKey}`,
           'Content-Type': 'application/json'
         },
         timeout: 15000
       }
     );
 
-    if (!response.data || !response.data.labels || !response.data.scores) {
-      return null;
-    }
-
-    const topLabel = response.data.labels[0];
-    const topScore = response.data.scores[0];
-
-    if (!topLabel || !topScore || topScore < 0.15) {
-      return null;
-    }
-
-    const matched = categories.find(c => {
-      const catLower = c.name.toLowerCase();
-      const labelLower = topLabel.toLowerCase();
-      return catLower === labelLower || 
-             labelLower.includes(catLower) || 
-             catLower.includes(labelLower) ||
-             catLower.split(' ').some(word => labelLower.includes(word)) ||
-             labelLower.split(' ').some(word => catLower.includes(word));
-    });
+    if (response.data && response.data.choices && response.data.choices.length > 0) {
+      const content = response.data.choices[0].message?.content?.trim() || '';
+      if (content) {
+        const categoryName = content.split('\n')[0].trim().replace(/['"]/g, '');
+        const matched = categories.find(c => {
+          const catLower = c.name.toLowerCase();
+          const contentLower = categoryName.toLowerCase();
+          return catLower === contentLower || 
+                 contentLower.includes(catLower) || 
+                 catLower.includes(contentLower) ||
+                 catLower.split(' ').some(word => contentLower.includes(word)) ||
+                 contentLower.split(' ').some(word => catLower.includes(word));
+        });
     
-    if (!matched) {
-      return null;
-    }
-
+        if (matched) {
     return {
       categoryId: matched.id,
       categoryName: matched.name,
       type: matched.type,
-      confidence: topScore,
-      model: `huggingface-${model}`
+            confidence: 0.9,
+            model: `groq-${model || 'llama-3.1-8b-instant'}`
     };
-  } catch (error) {
-    if (error.response && error.response.status === 401) {
-      throw new Error('Invalid Hugging Face API key');
+        }
+      }
     }
+
+    return null;
+  } catch (error) {
+    return null;
   }
-  return null;
 };
 
 const getCategoryKeywords = () => {
@@ -362,7 +362,7 @@ const categorizeWithKeywords = async (description, amount) => {
         const words = textLower.split(/\s+/);
         for (const word of words) {
           if (word === keywordLower || word.startsWith(keywordLower) || keywordLower.startsWith(word)) {
-            score += 0.3;
+        score += 0.3;
             break;
           }
         }
@@ -428,7 +428,7 @@ const categorizeTransaction = async (description, amount, options = {}) => {
   if (cached) {
     const category = await FinancialCategory.findByPk(cached.categoryId);
     if (category && category.type === transactionType) {
-      return { success: true, result: cached, fromCache: true };
+    return { success: true, result: cached, fromCache: true };
     }
   }
 
@@ -442,41 +442,42 @@ const categorizeTransaction = async (description, amount, options = {}) => {
     const typeCategories = allCategories.filter(c => c.type === transactionType);
 
     const extracted = extractMerchantName(description);
-    const hfApiKey = options.hfApiKey || process.env.HF_TXN_API_KEY;
-    const hfModel = options.hfModel || process.env.HF_TXN_MODEL || 'facebook/bart-large-mnli';
+    const groqApiKey = options.groqApiKey || process.env.GROQ_API_KEY;
+    const groqModel = options.groqModel || process.env.GROQ_MODEL || 'llama-3.1-8b-instant';
 
-    if (extracted && extracted.merchantName && hfApiKey) {
+    if (groqApiKey && extracted && extracted.merchantName) {
       try {
-        const merchantResult = await classifyMerchantWithAI(
+        const merchantResult = await classifyMerchantWithGroq(
           extracted.merchantName,
           description,
           typeCategories.map(c => ({ id: c.id, name: c.name, type: c.type })),
-          hfApiKey,
-          hfModel
+          groqApiKey,
+          groqModel
         );
 
         if (merchantResult && merchantResult.categoryId) {
-          // Verify the category type matches transaction type
           const foundCategory = await FinancialCategory.findByPk(merchantResult.categoryId);
           if (foundCategory && foundCategory.type === transactionType) {
             merchantResult.type = transactionType;
-            await setCachedResult(cacheKey, merchantResult);
-            return { success: true, result: merchantResult, fromCache: false };
+          await setCachedResult(cacheKey, merchantResult);
+            if (userId && merchantKey) {
+              await setMerchantOverride(userId, transactionType, merchantKey, merchantResult.categoryId, merchantResult.categoryName);
+            }
+          return { success: true, result: merchantResult, fromCache: false };
           }
-          // If category type doesn't match, continue to try other methods
         }
       } catch (error) {
       }
     }
 
     let mlResult = null;
-    if (hfApiKey && typeCategories.length > 0) {
+    if (groqApiKey && typeCategories.length > 0) {
       try {
-        mlResult = await classifyWithHuggingFace(
+        mlResult = await classifyWithGroq(
           description,
           typeCategories.map(c => ({ id: c.id, name: c.name, type: c.type })),
-          hfApiKey,
-          hfModel
+          groqApiKey,
+          groqModel
         );
       } catch (error) {
       }
@@ -487,9 +488,9 @@ const categorizeTransaction = async (description, amount, options = {}) => {
       const foundCategory = await FinancialCategory.findByPk(mlResult.categoryId);
       if (foundCategory && foundCategory.type === transactionType) {
         mlResult.type = transactionType;
-        await setCachedResult(cacheKey, mlResult);
-        return { success: true, result: mlResult, fromCache: false };
-      }
+      await setCachedResult(cacheKey, mlResult);
+      return { success: true, result: mlResult, fromCache: false };
+    }
       // If category type doesn't match, continue to try keywords/default
     }
 
@@ -519,9 +520,9 @@ const categorizeTransaction = async (description, amount, options = {}) => {
         });
       }
       
-      const result = { categoryId: category.id, categoryName: category.name, type: transactionType };
-      await setCachedResult(cacheKey, result);
-      return { success: true, result, fromCache: false };
+        const result = { categoryId: category.id, categoryName: category.name, type: transactionType };
+        await setCachedResult(cacheKey, result);
+        return { success: true, result, fromCache: false };
     }
 
     let category = await FinancialCategory.findOne({
