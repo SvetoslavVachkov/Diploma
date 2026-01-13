@@ -90,7 +90,7 @@ const scanReceiptHandler = async (req, res) => {
         fs.unlinkSync(fileToCleanup);
       } catch (unlinkError) {
         console.error('Error cleaning up file:', unlinkError);
-      }
+    }
     }
     
     console.error('Receipt scan error:', error);

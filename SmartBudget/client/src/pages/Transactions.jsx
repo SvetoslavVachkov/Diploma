@@ -29,6 +29,7 @@ ChartJS.register(
 const Transactions = () => {
   const [transactions, setTransactions] = useState([]);
   const [categories, setCategories] = useState([]);
+  const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [receiptModal, setReceiptModal] = useState(false);
@@ -95,8 +96,15 @@ const Transactions = () => {
         return dateB - dateA;
       });
 
+      const summaryRes = await api.get('/financial/transactions/summary').catch(() => ({ data: { status: 'error', data: null } }));
+
       setTransactions(sortedTransactions);
       setCategories(catRes.data.data || []);
+      if (summaryRes.data?.status === 'success' && summaryRes.data.data) {
+        setSummary(summaryRes.data.data);
+      } else {
+        setSummary(null);
+      }
     } catch (error) {
       setTransactions([]);
       setCategories([]);
@@ -402,7 +410,7 @@ const Transactions = () => {
         
         showDetailedPopup();
       } else {
-        alert('CSV файлът е импортиран успешно!');
+      alert('CSV файлът е импортиран успешно!');
       }
       
       await fetchData();
@@ -410,7 +418,7 @@ const Transactions = () => {
       alert('Грешка при импортиране: ' + (error.response?.data?.message || 'Неизвестна грешка'));
     } finally {
       setLoading(false);
-      e.target.value = '';
+    e.target.value = '';
     }
   };
 
@@ -440,10 +448,10 @@ const Transactions = () => {
       });
       
       if (response.data && response.data.status === 'success') {
-        setReceiptResult(response.data.data);
+      setReceiptResult(response.data.data);
         await fetchData();
-        setReceiptText('');
-        setReceiptFile(null);
+      setReceiptText('');
+      setReceiptFile(null);
         
         const imported = response.data.data?.imported || 0;
         const total = response.data.data?.total || 0;
@@ -454,7 +462,6 @@ const Transactions = () => {
         setReceiptError(response.data?.message || 'Грешка при сканиране на бележка.');
       }
     } catch (error) {
-      console.error('Receipt scan error:', error);
       const errorMessage = error.response?.data?.message || error.message || 'Грешка при сканиране на бележка.';
       setReceiptError(errorMessage);
       
@@ -471,53 +478,64 @@ const Transactions = () => {
   const expenseCategories = categories.filter((c) => c.type === 'expense');
   const incomeCategories = categories.filter((c) => c.type === 'income');
 
-  const totalIncome = transactions
-    .filter(tx => tx.type === 'income')
-    .reduce((sum, tx) => sum + parseFloat(tx.amount || 0), 0);
+  const totalIncome = summary?.totalIncome || 0;
+  const totalExpense = summary?.totalExpense || 0;
+  const balance = summary?.balance || (totalIncome - totalExpense);
 
-  const totalExpense = transactions
-    .filter(tx => tx.type === 'expense')
-    .reduce((sum, tx) => sum + parseFloat(tx.amount || 0), 0);
-
-  const balance = totalIncome - totalExpense;
+  const today = new Date();
+  const thirtyDaysAgo = new Date(today);
+  thirtyDaysAgo.setDate(today.getDate() - 30);
+  thirtyDaysAgo.setHours(0, 0, 0, 0);
 
   const last30Days = transactions
     .filter(tx => {
       const txDate = new Date(tx.transaction_date);
-      const daysAgo = (Date.now() - txDate.getTime()) / (1000 * 60 * 60 * 24);
-      return daysAgo <= 30;
+      return txDate >= thirtyDaysAgo;
     })
     .sort((a, b) => new Date(a.transaction_date) - new Date(b.transaction_date));
 
   const dailyData = {};
-  last30Days.forEach(tx => {
-    const date = new Date(tx.transaction_date).toLocaleDateString('bg-BG');
-    if (!dailyData[date]) {
-      dailyData[date] = { income: 0, expense: 0 };
+  for (let i = 0; i < 30; i++) {
+    const date = new Date(thirtyDaysAgo);
+    date.setDate(date.getDate() + i);
+    const dateKey = date.toISOString().split('T')[0];
+    dailyData[dateKey] = { income: 0, expense: 0 };
     }
+
+  last30Days.forEach(tx => {
+    const dateKey = tx.transaction_date;
+    if (dailyData[dateKey]) {
+      const amount = Math.abs(parseFloat(tx.amount || 0));
     if (tx.type === 'income') {
-      dailyData[date].income += parseFloat(tx.amount || 0);
+        dailyData[dateKey].income += amount;
     } else {
-      dailyData[date].expense += parseFloat(tx.amount || 0);
+        dailyData[dateKey].expense += amount;
+      }
     }
   });
 
+  const sortedDateKeys = Object.keys(dailyData).sort();
   const lineChartData = {
-    labels: Object.keys(dailyData),
+    labels: sortedDateKeys.map(dateKey => {
+      const date = new Date(dateKey);
+      return `${String(date.getDate()).padStart(2, '0')}.${String(date.getMonth() + 1).padStart(2, '0')}`;
+    }),
     datasets: [
       {
         label: 'Приходи',
-        data: Object.values(dailyData).map(d => d.income),
+        data: sortedDateKeys.map(dateKey => dailyData[dateKey].income),
         borderColor: '#10b981',
         backgroundColor: 'rgba(16, 185, 129, 0.1)',
-        tension: 0.4
+        tension: 0.4,
+        fill: true
       },
       {
         label: 'Разходи',
-        data: Object.values(dailyData).map(d => d.expense),
+        data: sortedDateKeys.map(dateKey => dailyData[dateKey].expense),
         borderColor: '#ef4444',
         backgroundColor: 'rgba(239, 68, 68, 0.1)',
-        tension: 0.4
+        tension: 0.4,
+        fill: true
       }
     ]
   };
@@ -527,7 +545,7 @@ const Transactions = () => {
     if (tx.type === 'expense' && tx.category_id) {
       const cat = categories.find(c => c.id === tx.category_id);
       const catName = cat?.name || 'Други';
-      categoryTotals[catName] = (categoryTotals[catName] || 0) + parseFloat(tx.amount || 0);
+      categoryTotals[catName] = (categoryTotals[catName] || 0) + Math.abs(parseFloat(tx.amount || 0));
     }
   });
 
@@ -557,10 +575,11 @@ const Transactions = () => {
     if (!monthlyComparison[monthKey]) {
       monthlyComparison[monthKey] = { income: 0, expense: 0 };
     }
+    const amount = Math.abs(parseFloat(tx.amount || 0));
     if (tx.type === 'income') {
-      monthlyComparison[monthKey].income += parseFloat(tx.amount || 0);
+      monthlyComparison[monthKey].income += amount;
     } else {
-      monthlyComparison[monthKey].expense += parseFloat(tx.amount || 0);
+      monthlyComparison[monthKey].expense += amount;
     }
   });
 
@@ -589,7 +608,59 @@ const Transactions = () => {
     maintainAspectRatio: false,
     plugins: {
       legend: {
-        position: 'top'
+        position: 'top',
+        labels: {
+          font: {
+            size: 12,
+            weight: '500'
+          },
+          padding: 15
+        }
+      },
+      tooltip: {
+        backgroundColor: 'rgba(0, 0, 0, 0.8)',
+        padding: 12,
+        titleFont: {
+          size: 14,
+          weight: 'bold'
+        },
+        bodyFont: {
+          size: 13
+        },
+        displayColors: true,
+        callbacks: {
+          label: function(context) {
+            return `${context.dataset.label}: ${context.parsed.y.toFixed(2)} €`;
+          }
+        }
+      }
+    },
+    scales: {
+      y: {
+        beginAtZero: true,
+        ticks: {
+          callback: function(value) {
+            return value.toFixed(0) + ' €';
+          },
+          font: {
+            size: 11
+          }
+        },
+        grid: {
+          color: 'rgba(0, 0, 0, 0.05)'
+        }
+      },
+      x: {
+        ticks: {
+          font: {
+            size: 11
+          },
+          maxRotation: 45,
+          minRotation: 45
+        },
+        grid: {
+          display: false
+        }
       }
     }
   };
@@ -653,12 +724,12 @@ const Transactions = () => {
               <div style={styles.summaryContent}>
                 <div style={styles.summaryLabel}>Транзакции</div>
                 <div style={{...styles.summaryValue, color: '#667eea'}}>
-                  {transactions.length}
+                  {summary?.transactionCount || transactions.length}
                 </div>
               </div>
             </div>
           </div>
-          <div style={styles.chartsGrid}>
+        <div style={styles.chartsGrid}>
           {Object.keys(dailyData).length > 0 && (
             <div style={styles.chartCard} className="chart-card">
               <h2 style={styles.chartTitle}>📈 Тренд за последните 30 дни</h2>
@@ -797,7 +868,7 @@ const Transactions = () => {
                           <div style={styles.resultDesc}>{item.description}</div>
                           <div style={styles.resultCategory}>{item.category || 'Без категория'}</div>
                         </div>
-                        <div style={styles.resultAmount}>{item.amount.toFixed(2)} лв</div>
+                        <div style={styles.resultAmount}>{item.amount.toFixed(2)} €</div>
                         <div style={styles.resultStatus}>{item.status === 'imported' ? 'Добавена' : 'Грешка'}</div>
                       </div>
                     ))}
@@ -818,8 +889,8 @@ const Transactions = () => {
       )}
 
       {!loading && (
-        <div style={styles.tableContainer}>
-          <table style={styles.table}>
+      <div style={styles.tableContainer}>
+        <table style={styles.table}>
           <thead>
             <tr>
               <th style={styles.th}>Дата</th>
@@ -940,7 +1011,7 @@ const Transactions = () => {
             )}
           </tbody>
         </table>
-        </div>
+      </div>
       )}
     </div>
   );

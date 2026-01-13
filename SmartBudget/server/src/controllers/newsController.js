@@ -32,9 +32,20 @@ const getArticles = async (req, res) => {
 
     const result = await searchArticles(filters, pagination);
 
+    const seenTitles = new Set();
+    const uniqueArticles = (result.articles || []).filter(article => {
+      if (!article || !article.title) return false;
+      const normalizedTitle = article.title.toLowerCase().trim();
+      if (seenTitles.has(normalizedTitle)) {
+        return false;
+      }
+      seenTitles.add(normalizedTitle);
+      return true;
+    });
+
     res.status(200).json({
       status: 'success',
-      data: result.articles,
+      data: uniqueArticles,
       pagination: result.pagination
     });
   } catch (error) {

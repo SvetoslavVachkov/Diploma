@@ -25,11 +25,15 @@ const {
   getGoalsHandler,
   getGoalByIdHandler,
   addToGoalHandler,
-  getGoalsSummaryHandler
+  getGoalsSummaryHandler,
+  getProductsReportHandler,
+  getGoalAdviceHandler,
+  chatHandler
 } = require('../controllers/financialController');
 const {
   importCSVHandler,
   getSpendingReportHandler,
+  getReportAnalysisHandler,
   uploadCSV
 } = require('../controllers/csvImportController');
 const {
@@ -65,6 +69,8 @@ router.get('/reports/yearly', authenticateToken, getYearlyReportHandler);
 router.get('/reports/category-breakdown', authenticateToken, getCategoryBreakdownHandler);
 router.get('/reports/trends', authenticateToken, getTrendsHandler);
 router.get('/reports/spending', authenticateToken, getSpendingReportHandler);
+router.get('/reports/spending/analysis', authenticateToken, getReportAnalysisHandler);
+router.get('/reports/products', authenticateToken, getProductsReportHandler);
 router.get('/advice', authenticateToken, getAdviceHandler);
 
 router.post('/goals', authenticateToken, createGoalHandler);
@@ -74,6 +80,9 @@ router.get('/goals/:id', authenticateToken, getGoalByIdHandler);
 router.put('/goals/:id', authenticateToken, updateGoalHandler);
 router.post('/goals/:id/add', authenticateToken, addToGoalHandler);
 router.delete('/goals/:id', authenticateToken, deleteGoalHandler);
+router.get('/goals/advice', authenticateToken, getGoalAdviceHandler);
+
+router.post('/ai/chat', authenticateToken, chatHandler);
 
 module.exports = router;
 

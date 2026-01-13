@@ -3,8 +3,9 @@ const { Op } = require('sequelize');
 const { normalizeMerchantKey, setMerchantOverride } = require('../services/financial/transactionCategorizationService');
 const { createTransaction, updateTransaction, deleteTransaction, getTransactions, getTransactionById, getTransactionSummary } = require('../services/financial/transactionService');
 const { createBudget, updateBudget, deleteBudget, getBudgets, getBudgetById, updateAllBudgetsSpentAmount } = require('../services/financial/budgetService');
-const { getMonthlyReport, getYearlyReport, getCategoryBreakdown, getTrends } = require('../services/financial/analyticsService');
+const { getMonthlyReport, getYearlyReport, getCategoryBreakdown, getTrends, getProductsAnalysis } = require('../services/financial/analyticsService');
 const { createGoal, updateGoal, deleteGoal, getGoals, getGoalById, addToGoal, getGoalsSummary } = require('../services/financial/goalService');
+const { chatWithAI } = require('../services/financial/aiChatService');
 
 const getCategories = async (req, res) => {
   try {
@@ -93,8 +94,12 @@ const createTransactionHandler = async (req, res) => {
       const { categorizeTransaction } = require('../services/financial/transactionCategorizationService');
       const amount = parseFloat(transactionData.amount) || 0;
       const categorization = await categorizeTransaction(transactionData.description, amount, {
+        groqApiKey: process.env.GROQ_API_KEY,
+        groqModel: process.env.GROQ_MODEL || 'llama-3.1-8b-instant',
         hfApiKey: process.env.HF_TXN_API_KEY,
-        hfModel: process.env.HF_TXN_MODEL
+        hfModel: process.env.HF_TXN_MODEL,
+        transactionType: transactionData.type || 'expense',
+        userId
       });
       
       if (categorization.success && categorization.result) {
@@ -157,6 +162,22 @@ const updateTransactionHandler = async (req, res) => {
               await setMerchantOverride(userId, result.transaction.type, merchantKey, category.id, category.name);
 
               if (applyToExisting) {
+                const { AICache } = require('../models');
+                const crypto = require('crypto');
+                const CATEGORY_CACHE_VERSION = 'v2';
+                const generateCacheKey = (text, type) => {
+                  const hash = crypto.createHash('sha256').update(`${type}:${text}`).digest('hex');
+                  return `transaction_category_${CATEGORY_CACHE_VERSION}_${hash}`;
+                };
+
+                const updatedTransactions = await FinancialTransaction.findAll({
+                  where: {
+                    user_id: userId,
+                    type: result.transaction.type,
+                    description: { [Op.like]: `%${merchantKey}%` }
+                  }
+                });
+
                 await FinancialTransaction.update(
                   { category_id: category.id },
                   {
@@ -167,6 +188,13 @@ const updateTransactionHandler = async (req, res) => {
                     }
                   }
                 );
+
+                for (const tx of updatedTransactions) {
+                  if (tx.description) {
+                    const cacheKey = generateCacheKey(tx.description, tx.type);
+                    await AICache.destroy({ where: { cache_key: cacheKey } });
+                  }
+                }
               }
             }
           }
@@ -918,6 +946,128 @@ const getGoalsSummaryHandler = async (req, res) => {
   }
 };
 
+const getProductsReportHandler = async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    
+    if (!userId) {
+      return res.status(401).json({
+        status: 'error',
+        message: 'Authentication required'
+      });
+    }
+
+    const result = await getProductsAnalysis(
+      userId,
+      req.query.date_from,
+      req.query.date_to,
+      req.query.search
+    );
+
+    if (result.success) {
+      res.status(200).json({
+        status: 'success',
+        data: result
+      });
+    } else {
+      res.status(400).json({
+        status: 'error',
+        message: result.error
+      });
+    }
+  } catch (error) {
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to get products analysis',
+      error: error.message
+    });
+  }
+};
+
+const getGoalAdviceHandler = async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    
+    if (!userId) {
+      return res.status(401).json({
+        status: 'error',
+        message: 'Authentication required'
+      });
+    }
+
+    const { getGoalAdvice } = require('../services/financial/goalService');
+    const result = await getGoalAdvice(userId);
+
+    if (result.success) {
+      res.status(200).json({
+        status: 'success',
+        data: result
+      });
+    } else {
+      res.status(400).json({
+        status: 'error',
+        message: result.error
+      });
+    }
+  } catch (error) {
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to get goal advice',
+      error: error.message
+    });
+  }
+};
+
+const chatHandler = async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    
+    if (!userId) {
+      return res.status(401).json({
+        status: 'error',
+        message: 'Authentication required'
+      });
+    }
+
+    const { message, previousAction, previousActionData } = req.body;
+
+    if (!message || typeof message !== 'string' || message.trim().length === 0) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'Message is required'
+      });
+    }
+
+    const groqApiKey = process.env.GROQ_API_KEY;
+    const groqModel = process.env.GROQ_MODEL || 'llama-3.1-8b-instant';
+
+    const result = await chatWithAI(userId, message.trim(), groqApiKey, groqModel, previousAction || null, previousActionData || null);
+
+    if (result.success) {
+      res.status(200).json({
+        status: 'success',
+        data: {
+          response: result.response,
+          action: result.action || null,
+          requiresConfirmation: result.requiresConfirmation || false,
+          actionData: result.actionData || null
+        }
+      });
+    } else {
+      res.status(400).json({
+        status: 'error',
+        message: result.error || 'Failed to process chat message'
+      });
+    }
+  } catch (error) {
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to process chat message',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   getCategories,
   createCategory,
@@ -942,6 +1092,9 @@ module.exports = {
   getGoalsHandler,
   getGoalByIdHandler,
   addToGoalHandler,
-  getGoalsSummaryHandler
+  getGoalsSummaryHandler,
+  getProductsReportHandler,
+  getGoalAdviceHandler,
+  chatHandler
 };
 

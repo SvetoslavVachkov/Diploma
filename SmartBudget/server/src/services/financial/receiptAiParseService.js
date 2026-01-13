@@ -1,4 +1,5 @@
 const axios = require('axios');
+const { analyzeProductsFromReceipt } = require('./productAnalysisService');
 
 const extractJsonObject = (text) => {
   if (!text) return null;
@@ -21,11 +22,30 @@ const extractJsonObject = (text) => {
   return null;
 };
 
-const parseReceiptWithAI = async (receiptText, { apiKey, model } = {}) => {
-  if (!apiKey || !model || !receiptText) return null;
+const parseReceiptWithAI = async (receiptText, { apiKey, model, useGroq = true } = {}) => {
+  if (!receiptText) return null;
 
   const text = String(receiptText);
-  const clipped = text.length > 8000 ? text.slice(0, 8000) : text;
+  const clipped = text.length > 4000 ? text.slice(0, 4000) : text;
+
+  if (useGroq && apiKey) {
+    try {
+      const groqResult = await analyzeProductsFromReceipt(clipped, apiKey, model || 'llama-3.1-8b-instant');
+      
+      if (groqResult && groqResult.products && groqResult.products.length > 0) {
+        const totalAmount = groqResult.amount_eur || groqResult.products.reduce((sum, p) => sum + (p.total_price || 0), 0);
+        return {
+          merchant: groqResult.merchant || null,
+          amount_eur: totalAmount > 0 ? totalAmount : null,
+          date: groqResult.date || null,
+          products: groqResult.products
+        };
+      }
+    } catch (groqError) {
+    }
+  }
+
+  if (!apiKey || !model) return null;
 
   const prompt = `You are an expert receipt parser.
 Extract the MERCHANT name and the TOTAL amount in EUR from the receipt OCR text.

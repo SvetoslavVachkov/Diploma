@@ -10,25 +10,36 @@ const Dashboard = () => {
   useEffect(() => {
     fetchSummary();
     fetchAdvice();
+    const interval = setInterval(() => {
+      fetchSummary();
+      fetchAdvice();
+    }, 30000);
+    return () => clearInterval(interval);
   }, []);
 
   const fetchSummary = async () => {
     try {
-      const [transactionsRes, summaryRes] = await Promise.all([
+      const today = new Date();
+      const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+      
+      const [transactionsRes, summaryRes, dailySummaryRes] = await Promise.all([
         api.get('/financial/transactions?limit=5'),
-        api.get('/financial/transactions/summary')
+        api.get('/financial/transactions/summary'),
+        api.get(`/financial/transactions/summary?date_from=${todayStr}&date_to=${todayStr}`)
       ]);
       const transactionsData = Array.isArray(transactionsRes.data.data)
         ? transactionsRes.data.data
         : (transactionsRes.data.data?.transactions || []);
       setSummary({
         recent: transactionsData,
-        totals: summaryRes.data.data || {}
+        totals: summaryRes.data.data || {},
+        daily: dailySummaryRes.data.data || {}
       });
     } catch (error) {
       setSummary({
         recent: [],
-        totals: {}
+        totals: {},
+        daily: {}
       });
     } finally {
       setLoading(false);
@@ -57,21 +68,21 @@ const Dashboard = () => {
       <h1 style={styles.title}>Начало</h1>
       <div style={styles.cards}>
         <div style={styles.card}>
-          <h3 style={styles.cardTitle}>Приходи</h3>
+          <h3 style={styles.cardTitle}>Дневни приходи</h3>
           <p style={styles.cardAmount}>
-            {summary?.totals.total_income?.toFixed(2) || '0.00'} лв
+            {summary?.daily.totalIncome?.toFixed(2) || '0.00'} €
           </p>
         </div>
         <div style={styles.card}>
-          <h3 style={styles.cardTitle}>Разходи</h3>
+          <h3 style={styles.cardTitle}>Дневни разходи</h3>
           <p style={styles.cardAmount}>
-            {summary?.totals.total_expense?.toFixed(2) || '0.00'} лв
+            {summary?.daily.totalExpense?.toFixed(2) || '0.00'} €
           </p>
         </div>
         <div style={styles.card}>
-          <h3 style={styles.cardTitle}>Баланс</h3>
+          <h3 style={styles.cardTitle}>Дневен баланс</h3>
           <p style={styles.cardAmount}>
-            {summary?.totals.balance?.toFixed(2) || '0.00'} лв
+            {summary?.daily.balance?.toFixed(2) || '0.00'} €
           </p>
         </div>
       </div>
@@ -90,10 +101,10 @@ const Dashboard = () => {
             {advice.spending_summary && (
               <div style={styles.summaryBox}>
                 <p style={styles.summaryText}>
-                  Общо разходи: {advice.spending_summary.total_spent?.toFixed(2) || '0.00'} лв
+                  Общо разходи: {advice.spending_summary.total_spent?.toFixed(2) || '0.00'} €
                 </p>
                 <p style={styles.summaryText}>
-                  Средно на ден: {advice.spending_summary.daily_average?.toFixed(2) || '0.00'} лв
+                  Средно на ден: {advice.spending_summary.daily_average?.toFixed(2) || '0.00'} €
                 </p>
               </div>
             )}
@@ -121,7 +132,7 @@ const Dashboard = () => {
                   }}
                 >
                   {tx.type === 'income' ? '+' : '-'}
-                  {parseFloat(tx.amount).toFixed(2)} лв
+                  {Math.abs(parseFloat(tx.amount || 0)).toFixed(2)} €
                 </p>
               </div>
             ))
@@ -136,44 +147,61 @@ const Dashboard = () => {
 
 const styles = {
   title: {
-    fontSize: '32px',
+    fontSize: '36px',
     fontWeight: 'bold',
-    color: 'white',
-    marginBottom: '30px'
+    color: '#1f2937',
+    marginBottom: '32px',
+    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+    WebkitBackgroundClip: 'text',
+    WebkitTextFillColor: 'transparent',
+    backgroundClip: 'text'
   },
   cards: {
     display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))',
-    gap: '20px',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+    gap: '24px',
     marginBottom: '40px'
   },
   card: {
-    background: 'white',
-    borderRadius: '16px',
-    padding: '30px',
-    boxShadow: '0 4px 20px rgba(0,0,0,0.1)'
+    background: 'linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%)',
+    borderRadius: '20px',
+    padding: '32px',
+    boxShadow: '0 8px 30px rgba(0,0,0,0.12)',
+    border: '1px solid rgba(102, 126, 234, 0.1)',
+    transition: 'all 0.3s ease',
+    position: 'relative',
+    overflow: 'hidden'
   },
   cardTitle: {
-    fontSize: '16px',
-    color: '#666',
-    marginBottom: '10px'
+    fontSize: '14px',
+    color: '#6b7280',
+    marginBottom: '12px',
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: '0.5px'
   },
   cardAmount: {
-    fontSize: '28px',
+    fontSize: '32px',
     fontWeight: 'bold',
-    color: '#333'
+    color: '#1f2937',
+    lineHeight: '1.2'
   },
   section: {
-    background: 'white',
-    borderRadius: '16px',
-    padding: '30px',
-    boxShadow: '0 4px 20px rgba(0,0,0,0.1)'
+    background: 'linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%)',
+    borderRadius: '20px',
+    padding: '32px',
+    boxShadow: '0 8px 30px rgba(0,0,0,0.12)',
+    marginBottom: '32px',
+    border: '1px solid rgba(102, 126, 234, 0.1)'
   },
   sectionTitle: {
-    fontSize: '24px',
+    fontSize: '26px',
     fontWeight: 'bold',
-    color: '#333',
-    marginBottom: '20px'
+    color: '#1f2937',
+    marginBottom: '24px',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '12px'
   },
   transactions: {
     display: 'flex',
