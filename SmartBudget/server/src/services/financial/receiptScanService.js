@@ -4,6 +4,7 @@ const Tesseract = require('tesseract.js');
 const { categorizeTransaction } = require('./transactionCategorizationService');
 const { createTransaction } = require('./transactionService');
 const { parseReceiptWithAI } = require('./receiptAiParseService');
+const { createReceiptProducts } = require('./productAnalysisService');
 
 const parseReceiptText = (text) => {
   const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
@@ -150,7 +151,7 @@ const parseReceiptText = (text) => {
           }
           if (!hasCurrencyMarker && v > 2000) {
             continue;
-          }
+      }
           let score = v;
           if (hasTotalLike) score += 10000;
           candidates.push({ v, score });
@@ -199,7 +200,7 @@ const parseReceiptText = (text) => {
     }
     
     items.push({ description: description.substring(0, 100), amount: totalAmount });
-  }
+    }
   
   if (items.length === 0 && totalAmount && totalAmount > 0) {
     items.push({ description: merchantName || 'Бележка', amount: totalAmount });
@@ -219,13 +220,7 @@ const extractTextFromImage = async (imagePath) => {
     }
 
     const run = async (psm) => {
-      const worker = await Tesseract.createWorker('eng+bul', 1, {
-        logger: (m) => {
-          if (m.status === 'recognizing text') {
-            console.log(`OCR progress (psm ${psm}): ${Math.round(m.progress * 100)}%`);
-          }
-        }
-      });
+      const worker = await Tesseract.createWorker('eng+bul', 1);
       await worker.setParameters({
         tessedit_pageseg_mode: String(psm),
         tessedit_ocr_engine_mode: '3',
@@ -282,9 +277,7 @@ const scanReceipt = async (userId, receiptText, receiptFile) => {
             };
           }
           
-          console.log('Starting OCR for file:', receiptFile.path);
-          text = await extractTextFromImage(receiptFile.path);
-          console.log('OCR completed, extracted text length:', text.length);
+        text = await extractTextFromImage(receiptFile.path);
         } catch (ocrError) {
           console.error('OCR error:', ocrError);
           return {
@@ -300,8 +293,8 @@ const scanReceipt = async (userId, receiptText, receiptFile) => {
               error: 'Файлът не съществува'
             };
           }
-          const fileContent = fs.readFileSync(receiptFile.path, 'utf8');
-          text = fileContent;
+        const fileContent = fs.readFileSync(receiptFile.path, 'utf8');
+        text = fileContent;
         } catch (readError) {
           console.error('File read error:', readError);
           return {
@@ -319,33 +312,50 @@ const scanReceipt = async (userId, receiptText, receiptFile) => {
       };
     }
 
-    const aiKey = process.env.HF_RECEIPT_API_KEY || process.env.HF_STMT_API_KEY || process.env.HF_TXN_API_KEY;
-    const aiModel = process.env.HF_RECEIPT_MODEL || process.env.HF_STMT_MODEL;
-    if (aiKey && aiModel) {
-      try {
-        const aiParsed = await parseReceiptWithAI(text, { apiKey: aiKey, model: aiModel });
-        if (aiParsed?.amount_eur && aiParsed.amount_eur > 0) {
-          const aiMerchant = aiParsed.merchant || null;
-          const desc = aiMerchant && aiMerchant.length > 2 ? aiMerchant : 'Бележка';
-          const parsed = {
-            date: null,
-            items: [{ description: desc.substring(0, 100), amount: aiParsed.amount_eur }],
-            total: aiParsed.amount_eur
-          };
-          return await (async () => {
-            const results = [];
-            let imported = 0;
-            let failed = 0;
+    const groqApiKey = process.env.GROQ_API_KEY;
+    const groqModel = process.env.GROQ_MODEL || 'llama-3.1-8b-instant';
+    const hfApiKey = process.env.HF_RECEIPT_API_KEY || process.env.HF_STMT_API_KEY || process.env.HF_TXN_API_KEY;
+    const hfModel = process.env.HF_RECEIPT_MODEL || process.env.HF_STMT_MODEL;
 
-            for (const item of parsed.items) {
+    if (groqApiKey || (hfApiKey && hfModel)) {
+      try {
+        const aiParsed = await parseReceiptWithAI(text, { 
+          apiKey: groqApiKey || hfApiKey, 
+          model: groqModel || hfModel,
+          useGroq: !!groqApiKey
+        });
+
+        if (aiParsed) {
+          if (aiParsed.products && Array.isArray(aiParsed.products) && aiParsed.products.length > 0) {
+            let totalAmount = aiParsed.amount_eur;
+            if (!totalAmount || totalAmount <= 0) {
+              totalAmount = aiParsed.products.reduce((sum, p) => sum + (parseFloat(p.total_price) || 0), 0);
+            }
+            
+            if (totalAmount > 0) {
+              const aiMerchant = aiParsed.merchant || null;
+              let merchantDescription = aiMerchant && aiMerchant.length > 2 ? aiMerchant.trim() : 'Бележка';
+              
+              const productNames = aiParsed.products.map(p => (p.name || '').trim()).filter(n => n && n.length > 0).join(', ');
+              if (productNames && productNames.length > 0) {
+                const maxProductLength = 150;
+                const productList = productNames.length > maxProductLength ? productNames.substring(0, maxProductLength) + '...' : productNames;
+                merchantDescription = `${merchantDescription} - ${productList}`;
+              }
+              
+              merchantDescription = merchantDescription.substring(0, 255);
+
               let categoryId = null;
               let categoryName = null;
 
               try {
-                const categorization = await categorizeTransaction(item.description, item.amount, {
+                const categorization = await categorizeTransaction(merchantDescription, totalAmount, {
+                  groqApiKey: groqApiKey,
+                  groqModel: groqModel,
                   hfApiKey: process.env.HF_TXN_API_KEY,
                   hfModel: process.env.HF_TXN_MODEL,
-                  transactionType: 'expense'
+                  transactionType: 'expense',
+                  userId
                 });
 
                 if (categorization.success && categorization.result && categorization.result.categoryId) {
@@ -362,25 +372,33 @@ const scanReceipt = async (userId, receiptText, receiptFile) => {
               if (!categoryId) {
                 const { FinancialCategory } = require('../../models');
                 const defaultCategory = await FinancialCategory.findOne({
-                  where: { name: 'Други разходи', type: 'expense', is_active: true }
+                  where: { name: 'Храна', type: 'expense', is_active: true }
                 });
                 if (defaultCategory) {
                   categoryId = defaultCategory.id;
                   categoryName = defaultCategory.name;
                 } else {
-                  const newCategory = await FinancialCategory.create({
-                    name: 'Други разходи',
-                    type: 'expense',
-                    icon: null,
-                    color: null,
-                    is_active: true
+                  const fallbackCategory = await FinancialCategory.findOne({
+                    where: { name: 'Други разходи', type: 'expense', is_active: true }
                   });
-                  categoryId = newCategory.id;
-                  categoryName = newCategory.name;
+                  if (fallbackCategory) {
+                    categoryId = fallbackCategory.id;
+                    categoryName = fallbackCategory.name;
+                  } else {
+                    const newCategory = await FinancialCategory.create({
+                      name: 'Храна',
+                      type: 'expense',
+                      icon: null,
+                      color: null,
+                      is_active: true
+                    });
+                    categoryId = newCategory.id;
+                    categoryName = newCategory.name;
+                  }
                 }
               }
 
-              const transactionDate = new Date();
+              const transactionDate = aiParsed.date ? new Date(aiParsed.date) : new Date();
               const formatDateLocal = (d) => {
                 const yyyy = d.getFullYear();
                 const mm = String(d.getMonth() + 1).padStart(2, '0');
@@ -390,42 +408,148 @@ const scanReceipt = async (userId, receiptText, receiptFile) => {
 
               const transactionData = {
                 category_id: categoryId,
-                amount: -Math.abs(item.amount),
-                description: item.description,
+                amount: -Math.abs(totalAmount),
+                description: merchantDescription.trim(),
                 transaction_date: formatDateLocal(transactionDate),
                 type: 'expense',
-                source: 'Receipt Scan'
+                source: 'Receipt Scan',
+                location: aiMerchant && aiMerchant.length > 2 ? aiMerchant.trim().substring(0, 255) : null
               };
 
               const createResult = await createTransaction(userId, transactionData);
 
-              if (createResult.success) {
-                imported++;
-                results.push({
-                  description: item.description,
-                  amount: item.amount,
-                  category: categoryName,
-                  status: 'imported'
-                });
+              if (createResult.success && createResult.transaction && createResult.transaction.id) {
+                try {
+                  await createReceiptProducts(createResult.transaction.id, aiParsed.products, groqApiKey, groqModel);
+                } catch (productError) {
+                }
+
+                return {
+                  success: true,
+                  imported: 1,
+                  total: 1,
+                  results: [{
+                    description: merchantDescription,
+                    amount: totalAmount,
+                    category: categoryName,
+                    status: 'imported',
+                    products: aiParsed.products.length,
+                    transaction_id: createResult.transaction.id
+                  }]
+                };
               } else {
-                failed++;
-                results.push({
-                  description: item.description,
-                  amount: item.amount,
-                  category: categoryName,
-                  status: 'failed',
-                  error: createResult.error
-                });
+                return {
+                  success: false,
+                  error: createResult.error || 'Failed to create transaction'
+                };
               }
             }
-
-            return {
-              success: true,
-              imported,
-              total: parsed.items.length,
-              results
+          } else if (aiParsed.amount_eur && aiParsed.amount_eur > 0) {
+            const aiMerchant = aiParsed.merchant || null;
+            const desc = aiMerchant && aiMerchant.length > 2 ? aiMerchant : 'Бележка';
+            const parsed = {
+              date: aiParsed.date || null,
+              items: [{ description: desc.substring(0, 100), amount: aiParsed.amount_eur }],
+              total: aiParsed.amount_eur
             };
-          })();
+            
+            return await (async () => {
+              const results = [];
+              let imported = 0;
+              let failed = 0;
+
+              for (const item of parsed.items) {
+                let categoryId = null;
+                let categoryName = null;
+
+                try {
+                  const categorization = await categorizeTransaction(item.description, item.amount, {
+                    hfApiKey: process.env.HF_TXN_API_KEY,
+                    hfModel: process.env.HF_TXN_MODEL,
+                    transactionType: 'expense',
+                    userId
+                  });
+
+                  if (categorization.success && categorization.result && categorization.result.categoryId) {
+                    const { FinancialCategory } = require('../../models');
+                    const foundCategory = await FinancialCategory.findByPk(categorization.result.categoryId);
+                    if (foundCategory && foundCategory.type === 'expense') {
+                      categoryId = categorization.result.categoryId;
+                      categoryName = categorization.result.categoryName;
+                    }
+                  }
+                } catch (catError) {
+                }
+
+                if (!categoryId) {
+                  const { FinancialCategory } = require('../../models');
+                  const defaultCategory = await FinancialCategory.findOne({
+                    where: { name: 'Други разходи', type: 'expense', is_active: true }
+                  });
+                  if (defaultCategory) {
+                    categoryId = defaultCategory.id;
+                    categoryName = defaultCategory.name;
+                  } else {
+                    const newCategory = await FinancialCategory.create({
+                      name: 'Други разходи',
+                      type: 'expense',
+                      icon: null,
+                      color: null,
+                      is_active: true
+                    });
+                    categoryId = newCategory.id;
+                    categoryName = newCategory.name;
+                  }
+                }
+
+                const transactionDate = parsed.date ? new Date(parsed.date) : new Date();
+                const formatDateLocal = (d) => {
+                  const yyyy = d.getFullYear();
+                  const mm = String(d.getMonth() + 1).padStart(2, '0');
+                  const dd = String(d.getDate()).padStart(2, '0');
+                  return `${yyyy}-${mm}-${dd}`;
+                };
+
+                const transactionData = {
+                  category_id: categoryId,
+                  amount: -Math.abs(item.amount),
+                  description: (item.description || 'Бележка').trim().substring(0, 255),
+                  transaction_date: formatDateLocal(transactionDate),
+                  type: 'expense',
+                  source: 'Receipt Scan',
+                  location: item.description && item.description.length > 2 ? item.description.trim().substring(0, 255) : null
+                };
+
+                const createResult = await createTransaction(userId, transactionData);
+
+                if (createResult.success) {
+                  imported++;
+                  results.push({
+                    description: item.description,
+                    amount: item.amount,
+                    category: categoryName,
+                    status: 'imported'
+                  });
+                } else {
+                  failed++;
+                  results.push({
+                    description: item.description,
+                    amount: item.amount,
+                    category: categoryName,
+                    status: 'failed',
+                    error: createResult.error
+                  });
+                }
+              }
+
+              return {
+                success: true,
+                imported,
+                total: parsed.items.length,
+                results
+              };
+            })();
+          }
         }
       } catch (aiErr) {
       }
@@ -462,13 +586,13 @@ const scanReceipt = async (userId, receiptText, receiptFile) => {
       let categoryName = null;
       
       try {
-        const categorization = await categorizeTransaction(item.description, item.amount, {
-          hfApiKey: process.env.HF_TXN_API_KEY,
+      const categorization = await categorizeTransaction(item.description, item.amount, {
+        hfApiKey: process.env.HF_TXN_API_KEY,
           hfModel: process.env.HF_TXN_MODEL,
           transactionType: 'expense',
           userId
-        });
-        
+      });
+      
         if (categorization.success && categorization.result && categorization.result.categoryId) {
           const { FinancialCategory } = require('../../models');
           const foundCategory = await FinancialCategory.findByPk(categorization.result.categoryId);
@@ -516,10 +640,11 @@ const scanReceipt = async (userId, receiptText, receiptFile) => {
       const transactionData = {
         category_id: categoryId,
         amount: -Math.abs(item.amount),
-        description: item.description,
+        description: (item.description || 'Бележка').trim().substring(0, 255),
         transaction_date: formatDateLocal(transactionDate),
         type: 'expense',
-        source: 'Receipt Scan'
+        source: 'Receipt Scan',
+        location: item.description && item.description.length > 2 ? item.description.trim().substring(0, 255) : null
       };
       
       const createResult = await createTransaction(userId, transactionData);
