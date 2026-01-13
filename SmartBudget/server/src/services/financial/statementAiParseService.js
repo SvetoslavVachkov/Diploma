@@ -72,7 +72,7 @@ ${clipped}`;
 
   let response;
   try {
-    response = await axios.post(
+    const endpoints = [
       `https://api-inference.huggingface.co/models/${model}`,
       {
         inputs: prompt,
@@ -81,15 +81,18 @@ ${clipped}`;
           return_full_text: false,
           temperature: 0.1
         }
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          'Content-Type': 'application/json'
-        },
-        timeout: 60000
+      } catch (endpointError) {
+        lastError = endpointError;
+        if (endpointError.response && (endpointError.response.status === 410 || endpointError.response.status === 404)) {
+          continue;
+        }
+        throw endpointError;
       }
-    );
+    }
+    
+    if (!response) {
+      throw lastError || new Error(`Hugging Face inference failed for model "${model}"`);
+    }
   } catch (error) {
     const status = error?.response?.status;
     if (status) {
