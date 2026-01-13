@@ -43,6 +43,9 @@ const {
 const {
   getAdviceHandler
 } = require('../controllers/moneyAdviceController');
+const {
+  chatHandler
+} = require('../controllers/aiChatController');
 
 router.get('/categories', getCategories);
 router.post('/categories', authenticateToken, createCategory);
@@ -72,6 +75,7 @@ router.get('/reports/spending', authenticateToken, getSpendingReportHandler);
 router.get('/reports/spending/analysis', authenticateToken, getReportAnalysisHandler);
 router.get('/reports/products', authenticateToken, getProductsReportHandler);
 router.get('/advice', authenticateToken, getAdviceHandler);
+router.post('/ai/chat', authenticateToken, chatHandler);
 
 router.post('/goals', authenticateToken, createGoalHandler);
 router.get('/goals', authenticateToken, getGoalsHandler);
