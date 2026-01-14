@@ -6,7 +6,7 @@ const normalizeProductName = (name) => {
   return name.toLowerCase().trim().replace(/\s+/g, ' ').replace(/[^\w\s]/g, '');
 };
 
-const analyzeProductWithGroq = async (productName, productList, apiKey, model = 'llama-3.1-8b-instant') => {
+const analyzeProductWithOpenAI = async (productName, productList, apiKey, model = 'gpt-4o-mini') => {
   if (!apiKey) {
     return null;
   }
@@ -47,7 +47,7 @@ Rules:
 - Health rating should be based on common knowledge about the product.`;
 
     const response = await axios.post(
-      'https://api.groq.com/openai/v1/chat/completions',
+      'https://api.openai.com/v1/chat/completions',
       {
         model: model,
         messages: [
@@ -159,9 +159,9 @@ Rules:
 - amount_eur must be in EUR, not BGN.`;
 
     const response = await axios.post(
-      'https://api.groq.com/openai/v1/chat/completions',
+      'https://api.openai.com/v1/chat/completions',
       {
-        model: model || 'llama-3.1-8b-instant',
+        model: model || 'gpt-4o-mini',
         messages: [
           {
             role: 'system',
@@ -307,7 +307,7 @@ const createReceiptProducts = async (transactionId, products, apiKey, model) => 
 
     let analysis = null;
     if (apiKey) {
-      analysis = await analyzeProductWithGroq(productName, productNames, apiKey, model);
+      analysis = await analyzeProductWithOpenAI(productName, productNames, apiKey, model);
     }
 
     const product = await findOrCreateProduct(productName, analysis);
@@ -332,7 +332,7 @@ const createReceiptProducts = async (transactionId, products, apiKey, model) => 
 };
 
 module.exports = {
-  analyzeProductWithGroq,
+  analyzeProductWithOpenAI,
   analyzeProductsFromReceipt,
   findOrCreateProduct,
   createReceiptProducts

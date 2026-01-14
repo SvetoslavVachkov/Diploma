@@ -1,10 +1,69 @@
 const fs = require('fs');
 const path = require('path');
 const Tesseract = require('tesseract.js');
+const axios = require('axios');
 const { categorizeTransaction } = require('./transactionCategorizationService');
 const { createTransaction } = require('./transactionService');
 const { parseReceiptWithAI } = require('./receiptAiParseService');
 const { createReceiptProducts } = require('./productAnalysisService');
+
+const correctOCRText = async (ocrText, apiKey, model) => {
+  if (!apiKey || !ocrText || ocrText.trim().length < 3) {
+    return ocrText;
+  }
+
+  try {
+    const prompt = `You are an expert at correcting OCR text errors from receipts. The text below was extracted from a receipt using OCR and may contain spelling mistakes, missing characters, or incorrect words.
+
+Your task:
+1. Correct any obvious OCR errors (e.g., "BILLA" instead of "BILLA", "Domino's" instead of "Domino s")
+2. Fix common OCR mistakes (e.g., "0" instead of "O", "1" instead of "I", "5" instead of "S")
+3. Preserve all numbers, amounts, dates, and prices exactly as they appear
+4. Keep the structure and formatting of the receipt
+5. Do not add or remove information, only correct errors
+
+OCR Text:
+${ocrText.substring(0, 4000)}
+
+Return ONLY the corrected text, nothing else.`;
+
+    const response = await axios.post(
+      'https://api.openai.com/v1/chat/completions',
+      {
+        model: model || 'gpt-4o-mini',
+        messages: [
+          {
+            role: 'system',
+            content: 'You are an expert OCR text corrector. Return only the corrected text without any explanations or markdown.'
+          },
+          {
+            role: 'user',
+            content: prompt
+          }
+        ],
+        temperature: 0.1,
+        max_tokens: 2000
+      },
+      {
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json'
+        },
+        timeout: 15000
+      }
+    );
+
+    if (response.data && response.data.choices && response.data.choices.length > 0) {
+      const corrected = response.data.choices[0].message?.content?.trim() || '';
+      if (corrected && corrected.length > 0) {
+        return corrected;
+      }
+    }
+  } catch (error) {
+  }
+
+  return ocrText;
+};
 
 const parseReceiptText = (text) => {
   const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
@@ -312,17 +371,25 @@ const scanReceipt = async (userId, receiptText, receiptFile) => {
       };
     }
 
-    const groqApiKey = process.env.GROQ_API_KEY;
-    const groqModel = process.env.GROQ_MODEL || 'llama-3.1-8b-instant';
-    const hfApiKey = process.env.HF_RECEIPT_API_KEY || process.env.HF_STMT_API_KEY || process.env.HF_TXN_API_KEY;
-    const hfModel = process.env.HF_RECEIPT_MODEL || process.env.HF_STMT_MODEL;
+    const openaiApiKey = process.env.OPENAI_API_KEY;
+    const openaiModel = process.env.OPENAI_MODEL || 'gpt-4o-mini';
+    
+    if (openaiApiKey) {
+      try {
+        const correctedText = await correctOCRText(text, openaiApiKey, openaiModel);
+        if (correctedText && correctedText.trim().length > 0) {
+          text = correctedText;
+        }
+      } catch (correctionError) {
+      }
+    }
 
-    if (groqApiKey || (hfApiKey && hfModel)) {
+    if (openaiApiKey) {
       try {
         const aiParsed = await parseReceiptWithAI(text, { 
-          apiKey: groqApiKey || hfApiKey, 
-          model: groqModel || hfModel,
-          useGroq: !!groqApiKey
+          apiKey: openaiApiKey, 
+          model: openaiModel,
+          useOpenAI: true
         });
 
         if (aiParsed) {
@@ -350,10 +417,8 @@ const scanReceipt = async (userId, receiptText, receiptFile) => {
 
               try {
                 const categorization = await categorizeTransaction(merchantDescription, totalAmount, {
-                  groqApiKey: groqApiKey,
-                  groqModel: groqModel,
-                  hfApiKey: process.env.HF_TXN_API_KEY,
-                  hfModel: process.env.HF_TXN_MODEL,
+                  openaiApiKey: openaiApiKey,
+                  openaiModel: openaiModel,
                   transactionType: 'expense',
                   userId
                 });
@@ -420,7 +485,7 @@ const scanReceipt = async (userId, receiptText, receiptFile) => {
 
               if (createResult.success && createResult.transaction && createResult.transaction.id) {
                 try {
-                  await createReceiptProducts(createResult.transaction.id, aiParsed.products, groqApiKey, groqModel);
+                  await createReceiptProducts(createResult.transaction.id, aiParsed.products, openaiApiKey, openaiModel);
                 } catch (productError) {
                 }
 
@@ -464,8 +529,8 @@ const scanReceipt = async (userId, receiptText, receiptFile) => {
 
                 try {
                   const categorization = await categorizeTransaction(item.description, item.amount, {
-                    hfApiKey: process.env.HF_TXN_API_KEY,
-                    hfModel: process.env.HF_TXN_MODEL,
+                    openaiApiKey: openaiApiKey,
+                    openaiModel: openaiModel,
                     transactionType: 'expense',
                     userId
                   });
@@ -587,10 +652,10 @@ const scanReceipt = async (userId, receiptText, receiptFile) => {
       
       try {
       const categorization = await categorizeTransaction(item.description, item.amount, {
-        hfApiKey: process.env.HF_TXN_API_KEY,
-          hfModel: process.env.HF_TXN_MODEL,
-          transactionType: 'expense',
-          userId
+        openaiApiKey: openaiApiKey,
+        openaiModel: openaiModel,
+        transactionType: 'expense',
+        userId
       });
       
         if (categorization.success && categorization.result && categorization.result.categoryId) {

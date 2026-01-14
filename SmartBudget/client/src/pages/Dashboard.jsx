@@ -19,27 +19,21 @@ const Dashboard = () => {
 
   const fetchSummary = async () => {
     try {
-      const today = new Date();
-      const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-      
-      const [transactionsRes, summaryRes, dailySummaryRes] = await Promise.all([
+      const [transactionsRes, summaryRes] = await Promise.all([
         api.get('/financial/transactions?limit=5'),
-        api.get('/financial/transactions/summary'),
-        api.get(`/financial/transactions/summary?date_from=${todayStr}&date_to=${todayStr}`)
+        api.get('/financial/transactions/summary')
       ]);
       const transactionsData = Array.isArray(transactionsRes.data.data)
         ? transactionsRes.data.data
         : (transactionsRes.data.data?.transactions || []);
       setSummary({
         recent: transactionsData,
-        totals: summaryRes.data.data || {},
-        daily: dailySummaryRes.data.data || {}
+        totals: summaryRes.data.data || {}
       });
     } catch (error) {
       setSummary({
         recent: [],
-        totals: {},
-        daily: {}
+        totals: {}
       });
     } finally {
       setLoading(false);
@@ -68,24 +62,24 @@ const Dashboard = () => {
       <h1 style={styles.title}>Начало</h1>
       <div style={styles.cards}>
         <div style={styles.card}>
-          <h3 style={styles.cardTitle}>Дневни приходи</h3>
+          <h3 style={styles.cardTitle}>Общо приходи</h3>
           <p style={styles.cardAmount}>
-            {(summary?.daily?.totalIncome || summary?.daily?.total_income || 0).toFixed(2)} €
+            {(summary?.totals?.totalIncome || summary?.totals?.total_income || 0).toFixed(2)} €
           </p>
         </div>
         <div style={styles.card}>
-          <h3 style={styles.cardTitle}>Дневни разходи</h3>
+          <h3 style={styles.cardTitle}>Общо разходи</h3>
           <p style={styles.cardAmount}>
-            {(summary?.daily?.totalExpense || summary?.daily?.total_expense || summary?.daily?.total_spent || 0).toFixed(2)} €
+            {(summary?.totals?.totalExpense || summary?.totals?.total_expense || summary?.totals?.total_spent || 0).toFixed(2)} €
           </p>
         </div>
         <div style={styles.card}>
-          <h3 style={styles.cardTitle}>Дневен баланс</h3>
+          <h3 style={styles.cardTitle}>Общ баланс</h3>
           <p style={styles.cardAmount}>
             {(() => {
-              const income = summary?.daily?.totalIncome || summary?.daily?.total_income || 0;
-              const expense = summary?.daily?.totalExpense || summary?.daily?.total_expense || summary?.daily?.total_spent || 0;
-              const balance = summary?.daily?.balance !== undefined ? summary.daily.balance : (income - expense);
+              const income = summary?.totals?.totalIncome || summary?.totals?.total_income || 0;
+              const expense = summary?.totals?.totalExpense || summary?.totals?.total_expense || summary?.totals?.total_spent || 0;
+              const balance = summary?.totals?.balance !== undefined ? summary.totals.balance : (income - expense);
               return balance.toFixed(2);
             })()} €
           </p>

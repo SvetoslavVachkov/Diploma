@@ -2,13 +2,13 @@ const axios = require('axios');
 
 const generateProfessionalReportAnalysis = async (reportData, options = {}) => {
   try {
-    const groqApiKey = options.groqApiKey || process.env.GROQ_API_KEY;
-    const groqModel = options.groqModel || process.env.GROQ_MODEL || 'llama-3.1-8b-instant';
+    const openaiApiKey = options.openaiApiKey || process.env.OPENAI_API_KEY;
+    const openaiModel = options.openaiModel || process.env.OPENAI_MODEL || 'gpt-4o-mini';
 
-    if (!groqApiKey) {
+    if (!openaiApiKey) {
       return {
         success: false,
-        error: 'Groq API key not configured'
+        error: 'OpenAI API key not configured'
       };
     }
 
@@ -58,9 +58,9 @@ ${insights.highest_spending_day ? `- Най-висок разход ден: ${in
 Бъди професионален, използвай финансови термини, и давай конкретни числа и проценти.`;
 
     const response = await axios.post(
-      'https://api.groq.com/openai/v1/chat/completions',
+      'https://api.openai.com/v1/chat/completions',
       {
-        model: groqModel,
+        model: openaiModel,
         messages: [
           {
             role: 'system',
@@ -76,7 +76,7 @@ ${insights.highest_spending_day ? `- Най-висок разход ден: ${in
       },
       {
         headers: {
-          'Authorization': `Bearer ${groqApiKey}`,
+          'Authorization': `Bearer ${openaiApiKey}`,
           'Content-Type': 'application/json'
         },
         timeout: 30000

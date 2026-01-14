@@ -152,10 +152,10 @@ const analyzeSpendingPatterns = async (userId, periodDays = 90) => {
 
 const generateAdviceWithAI = async (spendingData, options = {}) => {
   try {
-    const groqApiKey = options.groqApiKey || process.env.GROQ_API_KEY;
-    const groqModel = options.groqModel || process.env.GROQ_MODEL || 'llama-3.1-8b-instant';
+    const openaiApiKey = options.openaiApiKey || process.env.OPENAI_API_KEY;
+    const openaiModel = options.openaiModel || process.env.OPENAI_MODEL || 'gpt-4o-mini';
 
-    if (!groqApiKey) {
+    if (!openaiApiKey) {
       return generateAdviceWithRules(spendingData);
     }
 
@@ -217,9 +217,9 @@ ${topProducts.length > 0 ? `Най-често купувани продукти:
 
     try {
       const response = await axios.post(
-        'https://api.groq.com/openai/v1/chat/completions',
+        'https://api.openai.com/v1/chat/completions',
         {
-          model: groqModel,
+          model: openaiModel,
           messages: [
             {
               role: 'system',
@@ -235,7 +235,7 @@ ${topProducts.length > 0 ? `Най-често купувани продукти:
         },
         {
           headers: {
-            'Authorization': `Bearer ${groqApiKey}`,
+            'Authorization': `Bearer ${openaiApiKey}`,
             'Content-Type': 'application/json'
           },
           timeout: 30000
@@ -348,8 +348,8 @@ const getMoneyAdvice = async (userId, options = {}) => {
     }
 
     const adviceResult = await generateAdviceWithAI(spendingAnalysis.data, {
-      groqApiKey: process.env.GROQ_API_KEY,
-      groqModel: process.env.GROQ_MODEL || 'llama-3.1-8b-instant'
+      openaiApiKey: process.env.OPENAI_API_KEY,
+      openaiModel: process.env.OPENAI_MODEL || 'gpt-4o-mini'
     });
 
     return {

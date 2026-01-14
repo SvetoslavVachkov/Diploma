@@ -48,31 +48,26 @@ const Reports = () => {
 
       const shouldFetchMonthly = dateRange === 'month' || (dateRange === 'custom' && fromDate && toDate && fromDate.substring(0, 7) === toDate.substring(0, 7));
 
-      const promises = [
-        api.get('/financial/reports/spending', { params }).catch((err) => {
-          return { data: { status: 'error', data: null } };
-        }),
-        api.get('/financial/reports/products', { params }).catch((err) => {
-          return { data: { status: 'error', data: null } };
-        })
-      ];
+      const spendingPromise = api.get('/financial/reports/spending', { params }).catch((err) => {
+        return { data: { status: 'error', data: null } };
+      });
 
-      if (shouldFetchMonthly) {
-        promises.push(
-        api.get('/financial/reports/monthly', {
-          params: {
+      const productsPromise = api.get('/financial/reports/products', { params }).catch((err) => {
+        return { data: { status: 'error', data: null } };
+      });
+
+      const monthlyPromise = shouldFetchMonthly
+        ? api.get('/financial/reports/monthly', {
+            params: {
               year: fromDate && fromDate.length > 0 ? new Date(fromDate).getFullYear() : new Date().getFullYear(),
               month: fromDate && fromDate.length > 0 ? new Date(fromDate).getMonth() + 1 : new Date().getMonth() + 1
-          }
+            }
           }).catch((err) => {
             return { data: { status: 'error', data: null } };
           })
-        );
-      } else {
-        promises.push(Promise.resolve({ data: { status: 'success', data: null } }));
-      }
+        : Promise.resolve({ data: { status: 'success', data: null } });
 
-      const [spendingRes, productsRes, monthlyRes] = await Promise.all(promises);
+      const spendingRes = await spendingPromise;
       
       if (spendingRes.data?.status === 'success' && spendingRes.data.data) {
         const reportData = spendingRes.data.data;
@@ -102,6 +97,16 @@ const Reports = () => {
           };
         }
         setSpendingReport(reportData);
+        setLoading(false);
+        
+        if (reportData.summary && reportData.summary.transaction_count > 0) {
+          setTimeout(() => {
+            fetchAiAnalysis(fromDate, toDate, query);
+          }, 100);
+        } else {
+          setAiAnalysisLoading(false);
+          setAiAnalysis(null);
+        }
       } else {
         setSpendingReport({
           summary: { 
@@ -118,36 +123,37 @@ const Reports = () => {
             most_frequent_category: null
           }
         });
-      }
-
-      if (shouldFetchMonthly && monthlyRes.data?.status === 'success' && monthlyRes.data.data) {
-        const monthlyData = monthlyRes.data.data;
-        if (!monthlyData.totals) {
-          monthlyData.totals = { income: 0, expense: 0, balance: 0 };
-        }
-        setMonthlyReport(monthlyData);
-      } else {
-        setMonthlyReport(null);
-      }
-
-      if (productsRes.data?.status === 'success') {
-        setProductAnalysis(productsRes.data.data || { top_products: [], ai_recommendations: [] });
-      } else {
-        setProductAnalysis(null);
-      }
-
-      if (spendingRes.data?.status === 'success' && spendingRes.data.data && spendingRes.data.data.summary && spendingRes.data.data.summary.transaction_count > 0) {
-        fetchAiAnalysis(fromDate, toDate, query);
-      } else {
+        setLoading(false);
         setAiAnalysisLoading(false);
         setAiAnalysis(null);
       }
+
+      productsPromise.then((productsRes) => {
+        if (productsRes.data?.status === 'success') {
+          setProductAnalysis(productsRes.data.data || { top_products: [], ai_recommendations: [] });
+        } else {
+          setProductAnalysis(null);
+        }
+      });
+
+      monthlyPromise.then((monthlyRes) => {
+        if (shouldFetchMonthly && monthlyRes.data?.status === 'success' && monthlyRes.data.data) {
+          const monthlyData = monthlyRes.data.data;
+          if (!monthlyData.totals) {
+            monthlyData.totals = { income: 0, expense: 0, balance: 0 };
+          }
+          setMonthlyReport(monthlyData);
+        } else {
+          setMonthlyReport(null);
+        }
+      });
     } catch (error) {
       setSpendingReport(null);
       setMonthlyReport(null);
       setProductAnalysis(null);
-    } finally {
       setLoading(false);
+      setAiAnalysisLoading(false);
+      setAiAnalysis(null);
     }
   }, [dateFrom, dateTo, debouncedSearchQuery, dateRange]);
 

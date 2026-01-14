@@ -380,10 +380,10 @@ const getGoalAdvice = async (userId) => {
       remaining: Math.max(0, parseFloat(g.target_amount) - parseFloat(g.current_amount))
     }));
 
-    const groqApiKey = process.env.GROQ_API_KEY;
-    const groqModel = process.env.GROQ_MODEL || 'llama-3.1-8b-instant';
+    const openaiApiKey = process.env.OPENAI_API_KEY;
+    const openaiModel = process.env.OPENAI_MODEL || 'gpt-4o-mini';
 
-    if (!groqApiKey) {
+    if (!openaiApiKey) {
       return {
         success: true,
         advice: []
@@ -411,9 +411,9 @@ ${goalsData.map((g, i) => `${i + 1}. ${g.title} (${g.goal_type}): ${g.current_am
 - Всеки съвет да бъде на отделен ред`;
 
       const response = await axios.post(
-        'https://api.groq.com/openai/v1/chat/completions',
+        'https://api.openai.com/v1/chat/completions',
         {
-          model: groqModel,
+          model: openaiModel,
           messages: [
             {
               role: 'system',
@@ -429,7 +429,7 @@ ${goalsData.map((g, i) => `${i + 1}. ${g.title} (${g.goal_type}): ${g.current_am
         },
         {
           headers: {
-            'Authorization': `Bearer ${groqApiKey}`,
+            'Authorization': `Bearer ${openaiApiKey}`,
             'Content-Type': 'application/json'
           },
           timeout: 30000

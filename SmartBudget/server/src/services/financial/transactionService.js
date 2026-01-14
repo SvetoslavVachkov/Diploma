@@ -14,10 +14,17 @@ const createTransaction = async (userId, transactionData) => {
       throw new Error('Category type does not match transaction type');
     }
 
+    const amountValue = parseFloat(transactionData.amount);
+    const finalAmount = transactionData.type === 'expense' && amountValue > 0 
+      ? -Math.abs(amountValue) 
+      : (transactionData.type === 'income' && amountValue < 0 
+          ? Math.abs(amountValue) 
+          : amountValue);
+
     const transaction = await FinancialTransaction.create({
       user_id: userId,
       category_id: transactionData.category_id,
-      amount: Math.abs(parseFloat(transactionData.amount)),
+      amount: finalAmount,
       description: transactionData.description || null,
       transaction_date: transactionData.transaction_date || new Date(),
       type: transactionData.type,
