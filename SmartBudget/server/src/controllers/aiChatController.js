@@ -45,8 +45,13 @@ const chatHandler = async (req, res) => {
         req.session.pendingAction = result.action;
         req.session.pendingActionData = result.actionData;
       } else {
-        req.session.pendingAction = null;
-        req.session.pendingActionData = null;
+        if (result.lastTransaction) {
+          req.session.pendingAction = 'show_last_transaction';
+          req.session.pendingActionData = { lastTransaction: result.lastTransaction };
+        } else {
+          req.session.pendingAction = null;
+          req.session.pendingActionData = null;
+        }
       }
       
       if (result.data) {
