@@ -2,6 +2,7 @@ const axios = require('axios');
 const { FinancialTransaction, FinancialCategory, FinancialGoal, ReceiptProduct } = require('../../models');
 const { Op } = require('sequelize');
 const { createTransaction, deleteTransaction, getTransactions } = require('./transactionService');
+const { ReceiptProduct } = require('../../models');
 const { categorizeTransaction } = require('./transactionCategorizationService');
 const { createGoal, updateGoal, deleteGoal, getGoals } = require('./goalService');
 
@@ -208,6 +209,29 @@ const parseActionCommand = (message, previousAction = null, previousActionData =
       return { action: 'delete_all', confirmed: confirmed };
     }
     
+    const isDeleteLast = msgLower.includes('последн') || msgLower.includes('последната') || msgLower.includes('last');
+    if (isDeleteLast && previousActionData && previousActionData.lastTransaction) {
+      const lastTrans = previousActionData.lastTransaction;
+      let amount = null;
+      if (lastTrans.amount) {
+        if (typeof lastTrans.amount === 'number') {
+          amount = lastTrans.amount;
+        } else {
+          amount = parseFloat(String(lastTrans.amount).replace(/[€\s]/g, ''));
+        }
+      }
+      
+      return {
+        action: 'delete_specific',
+        confirmed: true,
+        transactionId: lastTrans.id || null,
+        amount: amount,
+        date: lastTrans.date || null,
+        descriptionKeywords: lastTrans.description || null,
+        deleteOnlyOne: true
+      };
+    }
+    
     const isDeleteIt = (msgLower === 'изтрий я' || msgLower === 'изтрии я' || msgLower === 'изтрий' || msgLower === 'изтрии' || msgLower === 'delete it' || msgLower === 'delete' || msgLower.trim() === 'изтрий я' || msgLower.trim() === 'изтрии я' || (msgLower.includes('изтрий') && (msgLower.includes('я') || msgLower.length <= 10)) || (msgLower.includes('изтрии') && (msgLower.includes('я') || msgLower.length <= 10)));
     
     if (isDeleteIt && previousActionData && previousActionData.lastTransaction) {
@@ -331,8 +355,27 @@ const parseActionCommand = (message, previousAction = null, previousActionData =
       type = 'expense';
     }
     
+    let products = null;
+    const productPatterns = [
+      /(?:като|с|with)\s+(?:продуктите|продукти|products)\s+(?:са|is|are)\s+(.+?)(?:\s+и\s+|$|\.)/i,
+      /(?:продуктите|продукти|products)\s+(?:са|is|are)\s+(.+?)(?:\s+и\s+|$|\.)/i,
+      /(?:като|с|with)\s+(.+?)(?:\s+и\s+|$|\.)/i
+    ];
+    
+    for (const pattern of productPatterns) {
+      const productsMatch = message.match(pattern);
+      if (productsMatch) {
+        const productsText = productsMatch[1].trim();
+        if (productsText.length > 0 && !productsText.match(/^\d+[.,]?\d*\s*(€|лв|eur|bgn|евро|лева)/i)) {
+          const productParts = productsText.split(/\s+и\s+|,\s*|\s+и\s+/);
+          products = productParts.map(p => p.trim()).filter(p => p.length > 0 && !p.match(/^\d+[.,]?\d*$/));
+          if (products.length > 0) break;
+        }
+      }
+    }
+    
     let description = '';
-    const stopWords = ['добави', 'add', 'създай', 'create', 'направи', 'транзакция', 'transaction', 'за', 'for', 'от', 'from', '€', 'лв', 'eur', 'bgn', 'евро', 'лева', 'разход', 'expense', 'приход', 'income'];
+    const stopWords = ['добави', 'add', 'създай', 'create', 'направи', 'транзакция', 'transaction', 'за', 'for', 'от', 'from', '€', 'лв', 'eur', 'bgn', 'евро', 'лева', 'разход', 'expense', 'приход', 'income', 'като', 'с', 'with', 'продуктите', 'продукти', 'products', 'са', 'is', 'are', 'категория', 'category'];
     const words = message.split(/\s+/).filter(w => {
       const wLower = w.toLowerCase().trim();
       return w && !stopWords.some(sw => wLower.includes(sw)) && !w.match(/^\d+[.,]?\d*$/);
@@ -343,9 +386,9 @@ const parseActionCommand = (message, previousAction = null, previousActionData =
     }
     
     if (!amount || amount <= 0) {
-      const numberMatch = message.match(/\d+/);
+      const numberMatch = normalizedMessage.match(/\d+[.,]?\d*/);
       if (numberMatch) {
-        amount = parseFloat(numberMatch[0]);
+        amount = parseFloat(numberMatch[0].replace(',', '.'));
       }
     }
     
@@ -354,7 +397,8 @@ const parseActionCommand = (message, previousAction = null, previousActionData =
         action: 'create',
         amount,
         type,
-        description: description || null
+        description: description || null,
+        products: products || null
       };
     }
   }
@@ -443,10 +487,27 @@ const executeAction = async (userId, actionData) => {
       const result = await createTransaction(userId, transactionData);
       
       if (result.success) {
+        if (actionData.products && actionData.products.length > 0) {
+          try {
+            const productPrice = actionData.amount / actionData.products.length;
+            for (const productName of actionData.products) {
+              await ReceiptProduct.create({
+                transaction_id: result.transaction.id,
+                product_name: productName,
+                quantity: 1,
+                unit_price: productPrice,
+                total_price: productPrice
+              });
+            }
+          } catch (productError) {
+            console.error('Error creating products:', productError);
+          }
+        }
+        
         return {
           success: true,
           action: 'create',
-          message: `Успешно добавена транзакция: ${actionData.amount} € (${actionData.type === 'income' ? 'Приход' : 'Разход'})`,
+          message: `Успешно добавена транзакция: ${actionData.amount} € (${actionData.type === 'income' ? 'Приход' : 'Разход'})${actionData.products && actionData.products.length > 0 ? ` с ${actionData.products.length} продукт(а)` : ''}`,
           transaction: result.transaction
         };
       } else {
@@ -530,12 +591,26 @@ const executeAction = async (userId, actionData) => {
         }
       }
       
-      const transactionsToDelete = await FinancialTransaction.findAll({ where });
+      const transactionsToDelete = await FinancialTransaction.findAll({ 
+        where,
+        order: [['transaction_date', 'DESC'], ['created_at', 'DESC']],
+        limit: actionData.deleteOnlyOne ? 1 : undefined
+      });
       
       if (transactionsToDelete.length === 0) {
         return {
           success: false,
           error: 'Не са намерени транзакции, които отговарят на зададените критерии.'
+        };
+      }
+      
+      if (actionData.deleteOnlyOne && transactionsToDelete.length > 0) {
+        await transactionsToDelete[0].destroy();
+        return {
+          success: true,
+          action: 'delete_specific',
+          message: `Успешно изтрита транзакция: ${transactionsToDelete[0].description || 'Без описание'}`,
+          deletedCount: 1
         };
       }
       
