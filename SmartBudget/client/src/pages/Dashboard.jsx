@@ -70,19 +70,24 @@ const Dashboard = () => {
         <div style={styles.card}>
           <h3 style={styles.cardTitle}>Дневни приходи</h3>
           <p style={styles.cardAmount}>
-            {summary?.daily.totalIncome?.toFixed(2) || '0.00'} €
+            {(summary?.daily?.totalIncome || summary?.daily?.total_income || 0).toFixed(2)} €
           </p>
         </div>
         <div style={styles.card}>
           <h3 style={styles.cardTitle}>Дневни разходи</h3>
           <p style={styles.cardAmount}>
-            {summary?.daily.totalExpense?.toFixed(2) || '0.00'} €
+            {(summary?.daily?.totalExpense || summary?.daily?.total_expense || summary?.daily?.total_spent || 0).toFixed(2)} €
           </p>
         </div>
         <div style={styles.card}>
           <h3 style={styles.cardTitle}>Дневен баланс</h3>
           <p style={styles.cardAmount}>
-            {summary?.daily.balance?.toFixed(2) || '0.00'} €
+            {(() => {
+              const income = summary?.daily?.totalIncome || summary?.daily?.total_income || 0;
+              const expense = summary?.daily?.totalExpense || summary?.daily?.total_expense || summary?.daily?.total_spent || 0;
+              const balance = summary?.daily?.balance !== undefined ? summary.daily.balance : (income - expense);
+              return balance.toFixed(2);
+            })()} €
           </p>
         </div>
       </div>

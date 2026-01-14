@@ -92,7 +92,8 @@ const getFinancialContext = async (userId, periodDays = 90) => {
     id: t.id,
     date: t.transaction_date ? new Date(t.transaction_date).toISOString().split('T')[0] : null,
     description: t.description || '',
-    amount: `${Math.abs(parseFloat(t.amount || 0)).toFixed(2)} €`,
+    amount: Math.abs(parseFloat(t.amount || 0)),
+    amountString: `${Math.abs(parseFloat(t.amount || 0)).toFixed(2)} €`,
     type: t.type,
     category: t.category?.name || 'Unknown',
     source: t.source || null,
@@ -163,9 +164,34 @@ const parseActionCommand = (message, previousAction = null, previousActionData =
       return { 
         action: 'delete_specific', 
         confirmed: true,
+        transactionId: previousActionData.transactionId,
         amount: previousActionData.amount,
         date: previousActionData.date,
         descriptionKeywords: previousActionData.descriptionKeywords
+      };
+    }
+  }
+  
+  if ((previousAction === 'show_last_transaction' || previousAction === 'delete_specific') && previousActionData && previousActionData.lastTransaction) {
+    const isDeleteCommand = msgLower.includes('изтрий') || msgLower.includes('изтрии') || msgLower.includes('delete');
+    if (isDeleteCommand) {
+      const lastTrans = previousActionData.lastTransaction;
+      let amount = null;
+      if (lastTrans.amount) {
+        if (typeof lastTrans.amount === 'number') {
+          amount = lastTrans.amount;
+        } else {
+          amount = parseFloat(String(lastTrans.amount).replace(/[€\s]/g, ''));
+        }
+      }
+      
+      return {
+        action: 'delete_specific',
+        confirmed: true,
+        transactionId: lastTrans.id || null,
+        amount: amount,
+        date: lastTrans.date || null,
+        descriptionKeywords: lastTrans.description || null
       };
     }
   }
@@ -182,6 +208,29 @@ const parseActionCommand = (message, previousAction = null, previousActionData =
       return { action: 'delete_all', confirmed: confirmed };
     }
     
+    const isDeleteIt = (msgLower === 'изтрий я' || msgLower === 'изтрии я' || msgLower === 'изтрий' || msgLower === 'изтрии' || msgLower === 'delete it' || msgLower === 'delete' || msgLower.trim() === 'изтрий я' || msgLower.trim() === 'изтрии я' || (msgLower.includes('изтрий') && (msgLower.includes('я') || msgLower.length <= 10)) || (msgLower.includes('изтрии') && (msgLower.includes('я') || msgLower.length <= 10)));
+    
+    if (isDeleteIt && previousActionData && previousActionData.lastTransaction) {
+      const lastTrans = previousActionData.lastTransaction;
+      let amount = null;
+      if (lastTrans.amount) {
+        if (typeof lastTrans.amount === 'number') {
+          amount = lastTrans.amount;
+        } else {
+          amount = parseFloat(String(lastTrans.amount).replace(/[€\s]/g, ''));
+        }
+      }
+      
+      return {
+        action: 'delete_specific',
+        confirmed: true,
+        transactionId: lastTrans.id || null,
+        amount: amount,
+        date: lastTrans.date || null,
+        descriptionKeywords: lastTrans.description || null
+      };
+    }
+    
     const amountMatch = message.match(/(\d+[.,]\d+|\d+)\s*(€|лв|eur|bgn)/i);
     const amount = amountMatch ? parseFloat(amountMatch[1].replace(',', '.')) : null;
     
@@ -189,7 +238,7 @@ const parseActionCommand = (message, previousAction = null, previousActionData =
     const dateStr = dateMatch ? dateMatch[1] : null;
     
     const descriptionKeywords = [];
-    const commonWords = ['изтрий', 'изтрии', 'delete', 'транзакция', 'transaction', 'за', 'for', 'с', 'with', '€', 'лв', 'eur', 'bgn'];
+    const commonWords = ['изтрий', 'изтрии', 'delete', 'транзакция', 'transaction', 'за', 'for', 'с', 'with', '€', 'лв', 'eur', 'bgn', 'я', 'it'];
     const words = message.split(/\s+/).filter(w => w && !commonWords.some(cw => w.toLowerCase().includes(cw.toLowerCase())) && !w.match(/^\d+[.,]?\d*$/));
     if (words.length > 0) {
       descriptionKeywords.push(...words.slice(0, 5));
@@ -416,6 +465,31 @@ const executeAction = async (userId, actionData) => {
   
   if (actionData.action === 'delete_specific') {
     try {
+      if (actionData.transactionId) {
+        const transaction = await FinancialTransaction.findOne({
+          where: {
+            id: actionData.transactionId,
+            user_id: userId
+          }
+        });
+        
+        if (!transaction) {
+          return {
+            success: false,
+            error: 'Транзакцията не е намерена.'
+          };
+        }
+        
+        await transaction.destroy();
+        
+        return {
+          success: true,
+          action: 'delete_specific',
+          message: `Успешно изтрита транзакция: ${transaction.description || 'Без описание'}`,
+          deletedCount: 1
+        };
+      }
+      
       const where = { user_id: userId };
       
       if (actionData.amount) {
@@ -425,12 +499,19 @@ const executeAction = async (userId, actionData) => {
       }
       
       if (actionData.date) {
-        const dateParts = actionData.date.split(/[.\/]/);
-        if (dateParts.length === 3) {
-          const day = parseInt(dateParts[0]);
-          const month = parseInt(dateParts[1]);
-          const year = parseInt(dateParts[2]) < 100 ? 2000 + parseInt(dateParts[2]) : parseInt(dateParts[2]);
-          const targetDate = new Date(year, month - 1, day);
+        let targetDate;
+        if (actionData.date.match(/^\d{4}-\d{2}-\d{2}$/)) {
+          targetDate = new Date(actionData.date);
+        } else {
+          const dateParts = actionData.date.split(/[.\/]/);
+          if (dateParts.length === 3) {
+            const day = parseInt(dateParts[0]);
+            const month = parseInt(dateParts[1]);
+            const year = parseInt(dateParts[2]) < 100 ? 2000 + parseInt(dateParts[2]) : parseInt(dateParts[2]);
+            targetDate = new Date(year, month - 1, day);
+          }
+        }
+        if (targetDate) {
           where.transaction_date = {
             [Op.gte]: new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate()),
             [Op.lt]: new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate() + 1)
@@ -439,12 +520,14 @@ const executeAction = async (userId, actionData) => {
       }
       
       if (actionData.descriptionKeywords) {
-        const keywords = actionData.descriptionKeywords.toLowerCase().split(/\s+/);
-        where.description = {
-          [Op.or]: keywords.map(keyword => ({
-            [Op.like]: `%${keyword}%`
-          }))
-        };
+        const keywords = actionData.descriptionKeywords.toLowerCase().split(/\s+/).filter(k => k.length > 2);
+        if (keywords.length > 0) {
+          where.description = {
+            [Op.or]: keywords.map(keyword => ({
+              [Op.like]: `%${keyword}%`
+            }))
+          };
+        }
       }
       
       const transactionsToDelete = await FinancialTransaction.findAll({ where });
@@ -630,9 +713,10 @@ const chatWithAI = async (userId, userMessage, apiKey, model, previousAction = n
       percentage: c.percentage.toFixed(1)
     })),
     recentTransactions: context.recentTransactions.slice(0, 100).map(t => ({
+      id: t.id,
       date: t.date,
       description: (t.description || '').substring(0, 80),
-      amount: t.amount,
+      amount: typeof t.amount === 'string' ? parseFloat(t.amount.replace(/[€\s]/g, '')) : (typeof t.amount === 'number' ? t.amount : 0),
       type: t.type,
       category: t.category
     })),
@@ -695,10 +779,26 @@ const chatWithAI = async (userId, userMessage, apiKey, model, previousAction = n
       const responseText = response.data.choices[0].message?.content?.trim() || '';
       
       if (responseText && responseText.length >= 10) {
+        let lastTransaction = null;
+        if (context.recentTransactions && context.recentTransactions.length > 0) {
+          const firstTrans = context.recentTransactions[0];
+          if (userMessage.toLowerCase().includes('последн') || userMessage.toLowerCase().includes('най-нов') || userMessage.toLowerCase().includes('last')) {
+            lastTransaction = {
+              id: firstTrans.id,
+              date: firstTrans.date,
+              description: firstTrans.description,
+              amount: typeof firstTrans.amount === 'number' ? firstTrans.amount : (typeof firstTrans.amount === 'string' ? parseFloat(firstTrans.amount.replace(/[€\s]/g, '')) : 0),
+              type: firstTrans.type,
+              category: firstTrans.category
+            };
+          }
+        }
+        
         return {
           success: true,
           response: responseText,
-          context: context
+          context: context,
+          lastTransaction: lastTransaction
         };
       }
     }
