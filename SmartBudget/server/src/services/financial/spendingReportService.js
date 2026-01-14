@@ -213,11 +213,11 @@ const generateSpendingReport = async (userId, dateFrom, dateTo, searchQuery, ski
     };
 
     let aiAnalysis = null;
-    if (!skipAI && validTransactions.length > 0 && process.env.GROQ_API_KEY) {
+    if (!skipAI && validTransactions.length > 0 && process.env.OPENAI_API_KEY) {
       try {
         const analysisResult = await generateProfessionalReportAnalysis(reportData, {
-          groqApiKey: process.env.GROQ_API_KEY,
-          groqModel: process.env.GROQ_MODEL || 'llama-3.1-8b-instant'
+          openaiApiKey: process.env.OPENAI_API_KEY,
+          openaiModel: process.env.OPENAI_MODEL || 'gpt-4o-mini'
         });
         if (analysisResult.success) {
           aiAnalysis = analysisResult.analysis;

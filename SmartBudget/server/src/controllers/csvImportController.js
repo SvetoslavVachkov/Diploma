@@ -157,8 +157,8 @@ const getReportAnalysisHandler = async (req, res) => {
     }
 
     const analysisResult = await generateProfessionalReportAnalysis(reportResult.report, {
-      groqApiKey: process.env.GROQ_API_KEY,
-      groqModel: process.env.GROQ_MODEL || 'llama-3.1-8b-instant'
+      openaiApiKey: process.env.OPENAI_API_KEY,
+      openaiModel: process.env.OPENAI_MODEL || 'gpt-4o-mini'
     });
 
     if (analysisResult.success) {

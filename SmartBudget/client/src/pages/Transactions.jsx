@@ -1625,4 +1625,3 @@ const animationStyles = `
 `;
 
 export default Transactions;
-

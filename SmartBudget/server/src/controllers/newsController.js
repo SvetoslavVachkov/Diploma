@@ -115,21 +115,15 @@ const getArticles = async (req, res) => {
       });
     }
 
-    const seenTitles = new Set();
-    const uniqueArticles = (result.articles || []).filter(article => {
-      if (!article || !article.title) return false;
-      const normalizedTitle = article.title.toLowerCase().trim();
-      if (seenTitles.has(normalizedTitle)) {
-        return false;
-      }
-      seenTitles.add(normalizedTitle);
-      return true;
-    });
-
     res.status(200).json({
       status: 'success',
-      data: uniqueArticles,
-      pagination: result.pagination
+      data: importantArticles.slice(0, limit),
+      pagination: {
+        page,
+        limit,
+        total: importantArticles.length,
+        pages: Math.ceil(importantArticles.length / limit)
+      }
     });
   } catch (error) {
     res.status(500).json({

@@ -118,7 +118,7 @@ const extractMerchantName = (description) => {
   };
 };
 
-const classifyMerchantWithGroq = async (merchantName, description, allCategories, apiKey, model) => {
+const classifyMerchantWithOpenAI = async (merchantName, description, allCategories, apiKey, model) => {
   if (!apiKey || allCategories.length === 0) {
     return null;
   }
@@ -147,7 +147,7 @@ Return ONLY the category name that best matches.`;
     const response = await axios.post(
       'https://api.groq.com/openai/v1/chat/completions',
       {
-        model: model || 'llama-3.1-8b-instant',
+        model: model || 'gpt-4o-mini',
         messages: [
           {
             role: 'system',
@@ -188,7 +188,7 @@ Return ONLY the category name that best matches.`;
       categoryName: matched.name,
       type: matched.type,
             confidence: 0.9,
-            model: `groq-${model}`
+            model: `openai-${model}`
     };
         }
       }
@@ -242,7 +242,7 @@ const generateCategoryNameFromDescription = (description) => {
   return null;
 };
 
-const classifyWithGroq = async (text, categories, apiKey, model) => {
+const classifyWithOpenAI = async (text, categories, apiKey, model) => {
   if (!apiKey || categories.length === 0) {
     return null;
   }
@@ -265,7 +265,7 @@ Return only the category name that best matches.`;
     const response = await axios.post(
       'https://api.groq.com/openai/v1/chat/completions',
       {
-        model: model || 'llama-3.1-8b-instant',
+        model: model || 'gpt-4o-mini',
         messages: [
           {
             role: 'system',
@@ -308,7 +308,7 @@ Return only the category name that best matches.`;
       categoryName: matched.name,
       type: matched.type,
             confidence: 0.9,
-            model: `groq-${model || 'llama-3.1-8b-instant'}`
+            model: `openai-${model || 'gpt-4o-mini'}`
     };
         }
       }
@@ -442,17 +442,17 @@ const categorizeTransaction = async (description, amount, options = {}) => {
     const typeCategories = allCategories.filter(c => c.type === transactionType);
 
     const extracted = extractMerchantName(description);
-    const groqApiKey = options.groqApiKey || process.env.GROQ_API_KEY;
-    const groqModel = options.groqModel || process.env.GROQ_MODEL || 'llama-3.1-8b-instant';
+    const openaiApiKey = options.openaiApiKey || process.env.OPENAI_API_KEY;
+    const openaiModel = options.openaiModel || process.env.OPENAI_MODEL || 'gpt-4o-mini';
 
-    if (groqApiKey && extracted && extracted.merchantName) {
+    if (openaiApiKey && extracted && extracted.merchantName) {
       try {
-        const merchantResult = await classifyMerchantWithGroq(
+        const merchantResult = await classifyMerchantWithOpenAI(
           extracted.merchantName,
           description,
           typeCategories.map(c => ({ id: c.id, name: c.name, type: c.type })),
-          groqApiKey,
-          groqModel
+          openaiApiKey,
+          openaiModel
         );
 
         if (merchantResult && merchantResult.categoryId) {
@@ -471,13 +471,13 @@ const categorizeTransaction = async (description, amount, options = {}) => {
     }
 
     let mlResult = null;
-    if (groqApiKey && typeCategories.length > 0) {
+    if (openaiApiKey && typeCategories.length > 0) {
       try {
-        mlResult = await classifyWithGroq(
+        mlResult = await classifyWithOpenAI(
           description,
           typeCategories.map(c => ({ id: c.id, name: c.name, type: c.type })),
-          groqApiKey,
-          groqModel
+          openaiApiKey,
+          openaiModel
         );
       } catch (error) {
       }
