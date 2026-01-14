@@ -438,7 +438,7 @@ const getProductsAnalysis = async (userId, dateFrom, dateTo, searchQuery) => {
       .slice(0, 20);
 
     let aiRecommendations = [];
-    if (topProducts.length > 0 && process.env.GROQ_API_KEY) {
+    if (topProducts.length > 0 && process.env.OPENAI_API_KEY) {
       try {
         const axios = require('axios');
         const prompt = `Анализирай тези продукти от бележки и дай конкретни съвети как потребителят може да промени купувателските си навици за да спести пари и да подобри здравето си.
@@ -449,9 +449,9 @@ ${topProducts.slice(0, 10).map((p, i) => `${i + 1}. ${p.product_name} - купе
 Давай 3-5 конкретни съвета на български език как да намали разходите и да подобри здравословния начин на живот. Бъди конкретен и практичен.`;
 
         const response = await axios.post(
-          'https://api.groq.com/openai/v1/chat/completions',
+          'https://api.openai.com/v1/chat/completions',
           {
-            model: process.env.GROQ_MODEL || 'llama-3.1-8b-instant',
+            model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
             messages: [
               {
                 role: 'system',
@@ -467,7 +467,7 @@ ${topProducts.slice(0, 10).map((p, i) => `${i + 1}. ${p.product_name} - купе
           },
           {
             headers: {
-              'Authorization': `Bearer ${process.env.GROQ_API_KEY}`,
+              'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
               'Content-Type': 'application/json'
             },
             timeout: 30000

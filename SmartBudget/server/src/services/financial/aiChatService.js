@@ -2,7 +2,6 @@ const axios = require('axios');
 const { FinancialTransaction, FinancialCategory, FinancialGoal, ReceiptProduct } = require('../../models');
 const { Op } = require('sequelize');
 const { createTransaction, deleteTransaction, getTransactions } = require('./transactionService');
-const { ReceiptProduct } = require('../../models');
 const { categorizeTransaction } = require('./transactionCategorizationService');
 const { createGoal, updateGoal, deleteGoal, getGoals } = require('./goalService');
 
@@ -173,10 +172,23 @@ const parseActionCommand = (message, previousAction = null, previousActionData =
     }
   }
   
-  if ((previousAction === 'show_last_transaction' || previousAction === 'delete_specific') && previousActionData && previousActionData.lastTransaction) {
+  if (previousActionData && previousActionData.lastTransaction) {
     const isDeleteCommand = msgLower.includes('изтрий') || msgLower.includes('изтрии') || msgLower.includes('delete');
-    if (isDeleteCommand) {
+    const isSimpleDelete = msgLower === 'изтрий я' || msgLower === 'изтрии я' || msgLower === 'изтрий' || msgLower === 'изтрии' || msgLower.trim() === 'изтрий я' || msgLower.trim() === 'изтрии я';
+    const isDeleteLast = msgLower.includes('последн') || msgLower.includes('последната') || msgLower.includes('last');
+    
+    if (isDeleteCommand && (previousAction === 'show_last_transaction' || previousAction === 'delete_specific' || isSimpleDelete || isDeleteLast)) {
       const lastTrans = previousActionData.lastTransaction;
+      
+      if (lastTrans.id) {
+        return {
+          action: 'delete_specific',
+          confirmed: true,
+          transactionId: lastTrans.id,
+          deleteOnlyOne: true
+        };
+      }
+      
       let amount = null;
       if (lastTrans.amount) {
         if (typeof lastTrans.amount === 'number') {
@@ -189,11 +201,18 @@ const parseActionCommand = (message, previousAction = null, previousActionData =
       return {
         action: 'delete_specific',
         confirmed: true,
-        transactionId: lastTrans.id || null,
+        transactionId: null,
         amount: amount,
         date: lastTrans.date || null,
-        descriptionKeywords: lastTrans.description || null
+        descriptionKeywords: lastTrans.description || null,
+        deleteOnlyOne: true
       };
+    }
+  }
+  
+  if (previousAction === 'delete_all' && !previousActionData?.confirmed) {
+    if (msgLower === 'да' || msgLower === 'yes' || msgLower === 'потвърди' || msgLower === 'потвърждавам' || msgLower === 'ok' || msgLower === 'ок') {
+      return { action: 'delete_all', confirmed: true };
     }
   }
   
@@ -210,24 +229,10 @@ const parseActionCommand = (message, previousAction = null, previousActionData =
     }
     
     const isDeleteLast = msgLower.includes('последн') || msgLower.includes('последната') || msgLower.includes('last');
-    if (isDeleteLast && previousActionData && previousActionData.lastTransaction) {
-      const lastTrans = previousActionData.lastTransaction;
-      let amount = null;
-      if (lastTrans.amount) {
-        if (typeof lastTrans.amount === 'number') {
-          amount = lastTrans.amount;
-        } else {
-          amount = parseFloat(String(lastTrans.amount).replace(/[€\s]/g, ''));
-        }
-      }
-      
+    if (isDeleteLast) {
       return {
-        action: 'delete_specific',
+        action: 'delete_last_transaction',
         confirmed: true,
-        transactionId: lastTrans.id || null,
-        amount: amount,
-        date: lastTrans.date || null,
-        descriptionKeywords: lastTrans.description || null,
         deleteOnlyOne: true
       };
     }
@@ -236,6 +241,16 @@ const parseActionCommand = (message, previousAction = null, previousActionData =
     
     if (isDeleteIt && previousActionData && previousActionData.lastTransaction) {
       const lastTrans = previousActionData.lastTransaction;
+      
+      if (lastTrans.id) {
+        return {
+          action: 'delete_specific',
+          confirmed: true,
+          transactionId: lastTrans.id,
+          deleteOnlyOne: true
+        };
+      }
+      
       let amount = null;
       if (lastTrans.amount) {
         if (typeof lastTrans.amount === 'number') {
@@ -248,10 +263,11 @@ const parseActionCommand = (message, previousAction = null, previousActionData =
       return {
         action: 'delete_specific',
         confirmed: true,
-        transactionId: lastTrans.id || null,
+        transactionId: null,
         amount: amount,
         date: lastTrans.date || null,
-        descriptionKeywords: lastTrans.description || null
+        descriptionKeywords: lastTrans.description || null,
+        deleteOnlyOne: true
       };
     }
     
@@ -357,32 +373,60 @@ const parseActionCommand = (message, previousAction = null, previousActionData =
     
     let products = null;
     const productPatterns = [
-      /(?:като|с|with)\s+(?:продуктите|продукти|products)\s+(?:са|is|are)\s+(.+?)(?:\s+и\s+|$|\.)/i,
-      /(?:продуктите|продукти|products)\s+(?:са|is|are)\s+(.+?)(?:\s+и\s+|$|\.)/i,
-      /(?:като|с|with)\s+(.+?)(?:\s+и\s+|$|\.)/i
+      /(?:и\s+)?добави\s+продукт(?:и|ите)?\s+(?:към\s+нея\s+)?(\d+)?\s*(?:брой|бр\.|бр)\s*(.+?)(?:\s+и\s+|$|\.|,)/i,
+      /(?:и\s+)?добави\s+продукт(?:и|ите)?\s+(.+?)(?:\s+и\s+|$|\.|,)/i,
+      /(?:като|с|with)\s+(?:продуктите|продукти|products)\s+(?:са|is|are)\s+(.+?)(?:\s+и\s+|$|\.|,)/i,
+      /(?:продуктите|продукти|products)\s+(?:са|is|are)\s+(.+?)(?:\s+и\s+|$|\.|,)/i,
+      /(?:като|с|with)\s+(.+?)(?:\s+и\s+|$|\.|,)/i,
+      /продукт(?:и|ите)?\s+(\d+)?\s*(?:брой|бр\.|бр)\s*(.+?)(?:\s+и\s+|$|\.|,)/i
     ];
     
     for (const pattern of productPatterns) {
       const productsMatch = message.match(pattern);
       if (productsMatch) {
-        const productsText = productsMatch[1].trim();
+        const productsText = productsMatch[productsMatch.length - 1].trim();
         if (productsText.length > 0 && !productsText.match(/^\d+[.,]?\d*\s*(€|лв|eur|bgn|евро|лева)/i)) {
           const productParts = productsText.split(/\s+и\s+|,\s*|\s+и\s+/);
-          products = productParts.map(p => p.trim()).filter(p => p.length > 0 && !p.match(/^\d+[.,]?\d*$/));
+          products = productParts.map(p => {
+            const cleaned = p.trim();
+            const numMatch = cleaned.match(/^(\d+)\s+(?:брой|бр\.|бр)\s*(.+)$/i);
+            if (numMatch) {
+              return numMatch[2].trim();
+            }
+            const numMatch2 = cleaned.match(/^(.+?)\s+(\d+)\s+(?:брой|бр\.|бр)$/i);
+            if (numMatch2) {
+              return numMatch2[1].trim();
+            }
+            return cleaned.replace(/\s+\d+\s+(?:брой|бр\.|бр)\s*$/i, '').trim();
+          }).filter(p => p.length > 0 && !p.match(/^\d+[.,]?\d*$/));
           if (products.length > 0) break;
         }
       }
     }
     
     let description = '';
-    const stopWords = ['добави', 'add', 'създай', 'create', 'направи', 'транзакция', 'transaction', 'за', 'for', 'от', 'from', '€', 'лв', 'eur', 'bgn', 'евро', 'лева', 'разход', 'expense', 'приход', 'income', 'като', 'с', 'with', 'продуктите', 'продукти', 'products', 'са', 'is', 'are', 'категория', 'category'];
-    const words = message.split(/\s+/).filter(w => {
-      const wLower = w.toLowerCase().trim();
-      return w && !stopWords.some(sw => wLower.includes(sw)) && !w.match(/^\d+[.,]?\d*$/);
-    });
+    let category = null;
     
-    if (words.length > 0) {
-      description = words.join(' ');
+    const categoryMatch = message.match(/(?:категория|category)\s+([а-яА-Яa-zA-Z]+)/i);
+    if (categoryMatch) {
+      category = categoryMatch[1].trim();
+    }
+    
+    const merchantMatch = message.match(/(?:от|from)\s+([а-яА-Яa-zA-Z\s]+?)(?:\s+с\s+|\s+на\s+|\s+от\s+|\s+за\s+|$|\.|,)/i);
+    if (merchantMatch) {
+      description = merchantMatch[1].trim();
+    }
+    
+    if (!description) {
+      const stopWords = ['добави', 'add', 'създай', 'create', 'направи', 'транзакция', 'transaction', 'за', 'for', 'от', 'from', '€', 'лв', 'eur', 'bgn', 'евро', 'лева', 'разход', 'expense', 'приход', 'income', 'като', 'с', 'with', 'продуктите', 'продукти', 'products', 'са', 'is', 'are', 'категория', 'category', 'днес', 'today', 'сега', 'now'];
+      const words = message.split(/\s+/).filter(w => {
+        const wLower = w.toLowerCase().trim();
+        return w && !stopWords.some(sw => wLower.includes(sw)) && !w.match(/^\d+[.,]?\d*$/);
+      });
+      
+      if (words.length > 0) {
+        description = words.join(' ');
+      }
     }
     
     if (!amount || amount <= 0) {
@@ -398,7 +442,8 @@ const parseActionCommand = (message, previousAction = null, previousActionData =
         amount,
         type,
         description: description || null,
-        products: products || null
+        products: products || null,
+        category: category || null
       };
     }
   }
@@ -408,14 +453,6 @@ const parseActionCommand = (message, previousAction = null, previousActionData =
 
 const executeAction = async (userId, actionData) => {
   if (actionData.action === 'delete_all') {
-    if (!actionData.confirmed) {
-      return {
-        success: false,
-        requiresConfirmation: true,
-        message: 'Сигурни ли сте, че искате да изтриете ВСИЧКИ транзакции? Това действие не може да бъде отменено. Отговорете "да" или "потвърди" за да продължите.'
-      };
-    }
-    
     try {
       const deleted = await FinancialTransaction.destroy({
         where: { user_id: userId }
@@ -453,15 +490,37 @@ const executeAction = async (userId, actionData) => {
       });
       
       let categoryId = null;
-      if (actionData.description) {
+      let categoryName = null;
+      
+      if (actionData.category) {
+        const categoryMatch = await FinancialCategory.findOne({
+          where: {
+            name: { [Op.like]: `%${actionData.category}%` },
+            type: actionData.type,
+            is_active: true
+          }
+        });
+        if (categoryMatch) {
+          categoryId = categoryMatch.id;
+          categoryName = categoryMatch.name;
+        }
+      }
+      
+      if (!categoryId && actionData.description) {
         const categorization = await categorizeTransaction(
           actionData.description,
-          actionData.type,
-          userId
+          actionData.amount,
+          {
+            transactionType: actionData.type,
+            userId,
+            openaiApiKey: process.env.OPENAI_API_KEY,
+            openaiModel: process.env.OPENAI_MODEL || 'gpt-4o-mini'
+          }
         );
         
         if (categorization.success && categorization.result) {
           categoryId = categorization.result.categoryId;
+          categoryName = categorization.result.categoryName;
         }
       }
       
@@ -476,9 +535,10 @@ const executeAction = async (userId, actionData) => {
         };
       }
       
+      const amountValue = parseFloat(actionData.amount);
       const transactionData = {
         category_id: categoryId,
-        amount: actionData.amount,
+        amount: actionData.type === 'expense' ? -Math.abs(amountValue) : Math.abs(amountValue),
         description: actionData.description || 'Добавена чрез AI',
         transaction_date: new Date().toISOString().split('T')[0],
         type: actionData.type
@@ -489,18 +549,25 @@ const executeAction = async (userId, actionData) => {
       if (result.success) {
         if (actionData.products && actionData.products.length > 0) {
           try {
-            const productPrice = actionData.amount / actionData.products.length;
+            const absAmount = Math.abs(parseFloat(actionData.amount));
+            const productPrice = absAmount / actionData.products.length;
             for (const productName of actionData.products) {
-              await ReceiptProduct.create({
-                transaction_id: result.transaction.id,
-                product_name: productName,
-                quantity: 1,
-                unit_price: productPrice,
-                total_price: productPrice
-              });
+              if (productName && productName.trim().length > 0) {
+                await ReceiptProduct.create({
+                  transaction_id: result.transaction.id,
+                  product_name: productName.trim(),
+                  quantity: 1,
+                  unit_price: productPrice,
+                  total_price: productPrice
+                });
+              }
             }
           } catch (productError) {
             console.error('Error creating products:', productError);
+            return {
+              success: false,
+              error: 'Транзакцията беше създадена, но имаше проблем при добавяне на продуктите: ' + (productError.message || 'Неизвестна грешка')
+            };
           }
         }
         
@@ -513,13 +580,49 @@ const executeAction = async (userId, actionData) => {
       } else {
         return {
           success: false,
-          error: 'Грешка при създаване на транзакция: ' + result.error
+          error: 'Грешка при създаване на транзакция: ' + (result.error || 'Неизвестна грешка')
         };
       }
     } catch (error) {
+      console.error('Error in executeAction create:', error);
       return {
         success: false,
-        error: 'Грешка при създаване на транзакция: ' + error.message
+        error: 'Грешка при създаване на транзакция: ' + (error.message || 'Неизвестна грешка')
+      };
+    }
+  }
+  
+  if (actionData.action === 'delete_last_transaction') {
+    try {
+      const lastTransaction = await FinancialTransaction.findOne({
+        where: { user_id: userId },
+        order: [['transaction_date', 'DESC'], ['created_at', 'DESC']],
+        include: [{
+          model: FinancialCategory,
+          as: 'category',
+          attributes: ['name', 'type']
+        }]
+      });
+      
+      if (!lastTransaction) {
+        return {
+          success: false,
+          error: 'Не са намерени транзакции.'
+        };
+      }
+      
+      await lastTransaction.destroy();
+      
+      return {
+        success: true,
+        action: 'delete_specific',
+        message: `Успешно изтрита транзакция: ${lastTransaction.description || 'Без описание'}`,
+        deletedCount: 1
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: 'Грешка при изтриване на последната транзакция: ' + error.message
       };
     }
   }
@@ -591,26 +694,34 @@ const executeAction = async (userId, actionData) => {
         }
       }
       
-      const transactionsToDelete = await FinancialTransaction.findAll({ 
-        where,
-        order: [['transaction_date', 'DESC'], ['created_at', 'DESC']],
-        limit: actionData.deleteOnlyOne ? 1 : undefined
-      });
+      if (actionData.deleteOnlyOne) {
+        const transactionToDelete = await FinancialTransaction.findOne({ 
+          where,
+          order: [['transaction_date', 'DESC'], ['created_at', 'DESC']]
+        });
+        
+        if (!transactionToDelete) {
+          return {
+            success: false,
+            error: 'Не са намерени транзакции, които отговарят на зададените критерии.'
+          };
+        }
+        
+        await transactionToDelete.destroy();
+        return {
+          success: true,
+          action: 'delete_specific',
+          message: `Успешно изтрита транзакция: ${transactionToDelete.description || 'Без описание'}`,
+          deletedCount: 1
+        };
+      }
+      
+      const transactionsToDelete = await FinancialTransaction.findAll({ where });
       
       if (transactionsToDelete.length === 0) {
         return {
           success: false,
           error: 'Не са намерени транзакции, които отговарят на зададените критерии.'
-        };
-      }
-      
-      if (actionData.deleteOnlyOne && transactionsToDelete.length > 0) {
-        await transactionsToDelete[0].destroy();
-        return {
-          success: true,
-          action: 'delete_specific',
-          message: `Успешно изтрита транзакция: ${transactionsToDelete[0].description || 'Без описание'}`,
-          deletedCount: 1
         };
       }
       
@@ -733,12 +844,51 @@ const chatWithAI = async (userId, userMessage, apiKey, model, previousAction = n
   if (!apiKey) {
     return {
       success: false,
-      error: 'AI не е конфигуриран. Добавете GROQ_API_KEY в .env файла.'
+      error: 'AI не е конфигуриран. Добавете OPENAI_API_KEY в .env файла.'
     };
   }
 
+  if (previousAction === 'delete_all' && !previousActionData?.confirmed) {
+    const msgLower = userMessage.toLowerCase().trim();
+    if (msgLower === 'да' || msgLower === 'yes' || msgLower === 'потвърди' || msgLower === 'потвърждавам' || msgLower === 'ok' || msgLower === 'ок') {
+      const actionResult = await executeAction(userId, {
+        action: 'delete_all',
+        confirmed: true
+      });
+      
+      if (actionResult.success) {
+        return {
+          success: true,
+          response: actionResult.message,
+          action: actionResult.action,
+          data: { deletedCount: actionResult.deletedCount }
+        };
+      } else {
+        return {
+          success: false,
+          error: actionResult.error
+        };
+      }
+    }
+  }
+
   const actionCommand = parseActionCommand(userMessage, previousAction, previousActionData);
-  if (actionCommand) {
+  
+  if (actionCommand && actionCommand.action === 'delete_all' && !actionCommand.confirmed) {
+    const actionResult = await executeAction(userId, actionCommand);
+    
+    if (actionResult.requiresConfirmation) {
+      return {
+        success: true,
+        response: actionResult.message,
+        requiresConfirmation: true,
+        action: actionCommand.action,
+        actionData: actionResult.criteria || actionCommand
+      };
+    }
+  }
+  
+  if (actionCommand && actionCommand.action !== 'create') {
     const actionResult = await executeAction(userId, actionCommand);
     
     if (actionResult.requiresConfirmation) {
@@ -768,8 +918,105 @@ const chatWithAI = async (userId, userMessage, apiKey, model, previousAction = n
 
   const context = await getFinancialContext(userId, 90);
   
-  const defaultModel = model || 'llama-3.1-8b-instant';
+  const defaultModel = model || 'gpt-4o-mini';
 
+  const tools = [
+    {
+      type: 'function',
+      function: {
+        name: 'get_first_transaction',
+        description: 'Намира най-старата/първата транзакция от базата данни. Използвай я когато питат за "първа транзакция", "най-стара транзакция", "най-първа транзакция".',
+        parameters: {
+          type: 'object',
+          properties: {},
+          required: []
+        }
+      }
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'get_last_transaction',
+        description: 'Намира най-новата/последната транзакция от базата данни. Използвай я когато питат за "последна транзакция", "най-нова транзакция".',
+        parameters: {
+          type: 'object',
+          properties: {},
+          required: []
+        }
+      }
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'delete_transaction',
+        description: 'Изтрива транзакция от базата данни. Използвай я ВИНАГИ когато потребителят иска да изтрие транзакция - "изтрий тази транзакция", "изтрий я", "изтрий последната", "изтрий транзакцията от [описание]" и т.н. Можеш да използваш комбинация от параметри за да намериш точната транзакция.',
+        parameters: {
+          type: 'object',
+          properties: {
+            description: {
+              type: 'string',
+              description: 'Описание или част от описанието на транзакцията за изтриване (например: "KAUFLAND", "BILLA", "LUKOIL")'
+            },
+            date: {
+              type: 'string',
+              description: 'Дата на транзакцията във формат YYYY-MM-DD (например: "2026-01-06")'
+            },
+            amount: {
+              type: 'number',
+              description: 'Сума на транзакцията в евро'
+            },
+            type: {
+              type: 'string',
+              enum: ['income', 'expense'],
+              description: 'Тип на транзакцията - income (приход) или expense (разход)'
+            },
+            delete_last: {
+              type: 'boolean',
+              description: 'Ако е true, изтрива последната транзакция независимо от другите параметри'
+            }
+          },
+          required: []
+        }
+      }
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'create_transaction',
+        description: 'Създава нова транзакция в базата данни. ВИНАГИ използвай тази функция когато потребителят каже "добави транзакция", "добави транзакция от [име]", "добави транзакция с категория [категория]" и т.н. Извличай всички параметри от съобщението - amount, description, type, category, products.',
+        parameters: {
+          type: 'object',
+          properties: {
+            amount: {
+              type: 'number',
+              description: 'Сумата на транзакцията в евро (например: 3.25)'
+            },
+            description: {
+              type: 'string',
+              description: 'Описание на транзакцията (например: "BILLA", "KAUFLAND", "LUKOIL")'
+            },
+            type: {
+              type: 'string',
+              enum: ['income', 'expense'],
+              description: 'Тип на транзакцията - income (приход) или expense (разход). По подразбиране е expense.'
+            },
+            category: {
+              type: 'string',
+              description: 'Категория на транзакцията (например: "Храна", "Гориво", "Заплата"). Ако не е посочена, ще се определи автоматично.'
+            },
+            products: {
+              type: 'array',
+              items: {
+                type: 'string'
+              },
+              description: 'Списък с продукти като масив от стрингове (например: ["цигари", "хляб"]). Ако потребителят каже "добави продукти цигари 1 бр", използвай ["цигари"].'
+            }
+          },
+          required: ['amount']
+        }
+      }
+    }
+  ];
 
   const financialData = {
     totals: {
@@ -802,30 +1049,49 @@ const chatWithAI = async (userId, userMessage, apiKey, model, previousAction = n
 
   try {
     const response = await axios.post(
-      'https://api.groq.com/openai/v1/chat/completions',
+      'https://api.openai.com/v1/chat/completions',
       {
         model: defaultModel,
         messages: [
           {
             role: 'system',
-            content: 'Ти си приятелски финансов съветник. Говориш с потребителя като с приятел - естествено, разговорно, но полезно. Отговаряй СТРОГО само с данни от предоставените транзакции. НИКОГА не измисляй или предполагай данни които не виждаш. КРИТИЧНО: recentTransactions е сортиран по дата DESCENDING (DESC) - най-новите са ПЪРВИ, най-старите са ПОСЛЕДНИ. recentTransactions[0] е ВИНАГИ най-новата/последната транзакция (най-новата дата). recentTransactions[recentTransactions.length - 1] е ВИНАГИ най-старата/първата транзакция (най-старата дата). Когато питат "най-първа" или "най-стара" - ВИНАГИ вземи последния елемент от масива. Отговори на български език.'
+            content: 'Ти си приятелски финансов съветник с пълна достъп до базата данни. Говориш с потребителя като с приятел - естествено, разговорно, но полезно. КРИТИЧНО: Когато потребителят иска да направи НЕЩО (добави транзакция, изтрие транзакция, види транзакция, и т.н.), ВИНАГИ използвай съответните функции (create_transaction, delete_transaction, get_first_transaction, get_last_transaction) за да изпълниш действието ДИРЕКТНО в базата данни. НЕ чакай потвърждение - ако потребителят каже "добави транзакция" или "добави транзакция от BILLA" или подобно, ВИНАГИ използвай create_transaction веднага с всички параметри които можеш да извлечеш от съобщението (amount, description, type, category, products). Ако потребителят каже "изтрий я" или "изтрий последната", ВИНАГИ използвай delete_transaction веднага. Ако питат за "първа транзакция" или "последна транзакция", ВИНАГИ използвай съответната функция за да получиш точни данни от базата. Когато потребителят иска да добави транзакция с продукти (например "добави продукти цигари 1 бр"), използвай create_transaction с параметъра products като масив от стрингове. ЗАБРАНЕНО: Когато питат "как да спестя за [нещо]" или "къде харча най-много", НИКОГА не изброявай транзакции! ВИНАГИ анализирай topCategories масива, изчисли месечни разходи и давай КОНКРЕТНИ съвети с РЕАЛНИ числа! Отговори на български език.'
           },
           {
             role: 'user',
             content: `Финансови данни:\n${JSON.stringify(financialData)}\n\nВъпрос: "${userMessage}"\n\nПРАВИЛА:
 1. НИКОГА НЕ ИЗМИСЛЯЙ ДАННИ. Използвай САМО данните от financialData. recentTransactions е сортиран по дата DESCENDING (най-новите са ПЪРВИ). recentTransactions[0] е ВИНАГИ най-новата/последната транзакция. recentTransactions[recentTransactions.length - 1] е ВИНАГИ най-старата/първата транзакция.
 
-2. ЗА СЪВЕТИ ЗА СПЕСТЯВАНЕ:
-- ВИНАГИ първо провери topCategories масива - там са категориите подредени по total (най-големите разходи първи)
+2. ЗА СЪВЕТИ ЗА СПЕСТЯВАНЕ - ЗАБРАНЕНО Е ДА ИЗБРОЯВАШ ТРАНЗАКЦИИ! СЛЕДВАЙ ТОЧНО ТАЗИ СТРУКТУРА:
+
+Когато питат "как да спестя за [нещо]" или "къде харча най-много", ЗАБРАНЕНО Е да изброяваш транзакции като "Последната транзакция е..." или "Най-стара транзакция е..."! ВИНАГИ следвай тази структура:
+
+СТЪПКА 1: ВИНАГИ първо провери topCategories масива - там са категориите подредени по total (най-големите разходи първи)
 - Първата категория в topCategories е това за което харчиш НАЙ-МНОГО
-- Използвай total и percentage от topCategories за да видиш колко харчиш за всяка категория
-- Изчисли месечни разходи: ако total за категория е X и периодът е 90 дни, месечните разходи са приблизително (X / 90) * 30
-- Дай КОНКРЕТНИ съвети с РЕАЛНИ числа базирани на topCategories:
-  * Ако най-голямата категория е "Храна": "Харчиш [total] € за храна ([percentage]% от разходите). Можеш да спестиш като планираш ястията, готвиш вкъщи, купуваш от по-евтини магазини, избягваш ресторанти."
-  * Ако най-голямата категория е "Гориво": "Харчиш [total] € за гориво ([percentage]% от разходите). Можеш да спестиш като използваш градски транспорт, споделяш пътувания, комбинираш задачи."
-  * Ако най-голямата категория е друга: анализирай какво е и дай конкретни съвети за намаляване на разходите в тази категория
-- Изчисли потенциални спестявания: "Ако намалиш разходите с 20-30%, ще спестиш [изчислена сума] € месечно"
-- Предложи 3-5 конкретни, практически съвета базирани на най-големите разходи от topCategories
+- Намери категорията свързана с въпроса:
+  * "кола", "автомобил", "гориво" → търси "Гориво", "Транспорт", "Гориво и транспорт", "Транспортни разходи"
+  * "храна" → търси "Храна", "Хранителни стоки"
+  * "здраве" → търси "Здраве", "Медицински"
+- Използвай total и percentage от topCategories
+
+СТЪПКА 2: Изчисли месечни разходи ОТ ДАННИТЕ:
+- Ако total за категория е X и периодът е 90 дни: месечни разходи = (X / 90) * 30
+- Ако периодът е 30 дни: месечни разходи = X
+- Изчисли годишни разходи = месечни разходи * 12
+
+СТЪПКА 3: Дай КОНКРЕТЕН отговор САМО с този формат (НЕ изброявай транзакции!):
+"Здравей! Анализирах твоите разходи и виждам, че харчиш [total] € за [категория] за последните [дни] дни, което е [percentage]% от общите ти разходи. Това е приблизително [месечни разходи] € месечно ([годишни разходи] € годишно).
+
+Ето как можеш да спестиш:
+1. [Конкретен съвет 1 - за гориво: "Използвай градски транспорт поне 2 пъти седмично вместо колата"]
+2. [Конкретен съвет 2 - за гориво: "Споделяй пътувания с колеги или приятели за да разделиш разходите"]
+3. [Конкретен съвет 3 - за гориво: "Комбинирай задачите си за да намалиш броя пътувания"]
+4. [Конкретен съвет 4 - за гориво: "Използвай приложения за споделяне на пътувания"]
+5. [Конкретен съвет 5 - за гориво: "Планирай маршрута си предварително за да избегнеш заобиколки"]
+
+Ако намалиш разходите с 25%, ще спестиш около [изчислена сума] € месечно, което е [годишна сума] € годишно!"
+
+ЗАБРАНЕНО: НИКОГА не изброявай транзакции като "Последната транзакция е..." или "Най-стара транзакция е..."! ВИНАГИ анализирай topCategories, изчисли месечни разходи и давай КОНКРЕТНИ съвети с РЕАЛНИ числа!
 
 3. ЗА ВЪПРОСИ ЗА ТРАНЗАКЦИИ - КРИТИЧНО:
 - recentTransactions е сортиран по дата DESCENDING - най-новите са ПЪРВИ, най-старите са ПОСЛЕДНИ
@@ -835,11 +1101,13 @@ const chatWithAI = async (userId, userMessage, apiKey, model, previousAction = n
 - Сравни датите в масива - най-старата дата е в последния елемент
 - Кажи ТОЧНО: описание, сума, дата от данните. НЕ измисляй дати или транзакции.
 
-4. Говори приятелски и естествено, но бъди конкретен с числата от данните. ВИНАГИ анализирай topCategories за да видиш за какво харчи най-много.`
+4. Говори приятелски и естествено, но бъди конкретен с числата от данните. ВИНАГИ анализирай topCategories за да видиш за какво харчи най-много. Когато даваш съвети за спестяване, ВИНАГИ използвай данните от topCategories и давай КОНКРЕТНИ, ПРАКТИЧЕСКИ съвети с РЕАЛНИ числа, не просто изброявай транзакции.`
           }
         ],
+        tools: tools,
+        tool_choice: 'auto',
         temperature: 0.2,
-        max_tokens: 512
+        max_tokens: 1024
       },
       {
         headers: {
@@ -851,30 +1119,262 @@ const chatWithAI = async (userId, userMessage, apiKey, model, previousAction = n
     );
 
     if (response.data && response.data.choices && response.data.choices.length > 0) {
-      const responseText = response.data.choices[0].message?.content?.trim() || '';
+      const choice = response.data.choices[0];
+      const message = choice.message;
       
-      if (responseText && responseText.length >= 10) {
+      if (message.tool_calls && message.tool_calls.length > 0) {
+        const toolResults = [];
         let lastTransaction = null;
-        if (context.recentTransactions && context.recentTransactions.length > 0) {
-          const firstTrans = context.recentTransactions[0];
-          if (userMessage.toLowerCase().includes('последн') || userMessage.toLowerCase().includes('най-нов') || userMessage.toLowerCase().includes('last')) {
-            lastTransaction = {
-              id: firstTrans.id,
-              date: firstTrans.date,
-              description: firstTrans.description,
-              amount: typeof firstTrans.amount === 'number' ? firstTrans.amount : (typeof firstTrans.amount === 'string' ? parseFloat(firstTrans.amount.replace(/[€\s]/g, '')) : 0),
-              type: firstTrans.type,
-              category: firstTrans.category
+        
+        for (const toolCall of message.tool_calls) {
+          const functionName = toolCall.function.name;
+          const functionArgs = JSON.parse(toolCall.function.arguments || '{}');
+          
+          let functionResult = null;
+          
+          if (functionName === 'get_first_transaction') {
+            const firstTrans = await FinancialTransaction.findOne({
+              where: { user_id: userId },
+              order: [['transaction_date', 'ASC'], ['created_at', 'ASC']],
+              include: [{
+                model: FinancialCategory,
+                as: 'category',
+                attributes: ['name', 'type']
+              }]
+            });
+            
+            if (firstTrans) {
+              functionResult = {
+                id: firstTrans.id,
+                date: firstTrans.transaction_date,
+                description: firstTrans.description,
+                amount: parseFloat(firstTrans.amount),
+                type: firstTrans.type,
+                category: firstTrans.category?.name || 'Unknown'
+              };
+            } else {
+              functionResult = { error: 'Не са намерени транзакции' };
+            }
+          } else if (functionName === 'get_last_transaction') {
+            const lastTrans = await FinancialTransaction.findOne({
+              where: { user_id: userId },
+              order: [['transaction_date', 'DESC'], ['created_at', 'DESC']],
+              include: [{
+                model: FinancialCategory,
+                as: 'category',
+                attributes: ['name', 'type']
+              }]
+            });
+            
+            if (lastTrans) {
+              functionResult = {
+                id: lastTrans.id,
+                date: lastTrans.transaction_date ? new Date(lastTrans.transaction_date).toISOString().split('T')[0] : null,
+                description: lastTrans.description,
+                amount: parseFloat(lastTrans.amount),
+                type: lastTrans.type,
+                category: lastTrans.category?.name || 'Unknown'
+              };
+              lastTransaction = functionResult;
+            } else {
+              functionResult = { error: 'Не са намерени транзакции' };
+            }
+          } else if (functionName === 'delete_transaction') {
+            try {
+              const where = { user_id: userId };
+              
+              if (functionArgs.delete_last === true) {
+                const lastTrans = await FinancialTransaction.findOne({
+                  where: { user_id: userId },
+                  order: [['transaction_date', 'DESC'], ['created_at', 'DESC']]
+                });
+                
+                if (lastTrans) {
+                  await lastTrans.destroy();
+                  functionResult = {
+                    success: true,
+                    message: `Успешно изтрита транзакция: ${lastTrans.description || 'Без описание'}`,
+                    deletedCount: 1
+                  };
+                } else {
+                  functionResult = {
+                    success: false,
+                    error: 'Не са намерени транзакции'
+                  };
+                }
+              } else {
+                if (functionArgs.description) {
+                  where.description = {
+                    [Op.like]: `%${functionArgs.description}%`
+                  };
+                }
+                
+                if (functionArgs.date) {
+                  let targetDate;
+                  if (functionArgs.date.match(/^\d{4}-\d{2}-\d{2}$/)) {
+                    targetDate = new Date(functionArgs.date);
+                  } else {
+                    const dateParts = functionArgs.date.split(/[.\/]/);
+                    if (dateParts.length === 3) {
+                      const day = parseInt(dateParts[0]);
+                      const month = parseInt(dateParts[1]);
+                      const year = parseInt(dateParts[2]) < 100 ? 2000 + parseInt(dateParts[2]) : parseInt(dateParts[2]);
+                      targetDate = new Date(year, month - 1, day);
+                    }
+                  }
+                  if (targetDate) {
+                    where.transaction_date = {
+                      [Op.gte]: new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate()),
+                      [Op.lt]: new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate() + 1)
+                    };
+                  }
+                }
+                
+                if (functionArgs.amount) {
+                  where.amount = {
+                    [Op.between]: [functionArgs.amount * 0.99, functionArgs.amount * 1.01]
+                  };
+                }
+                
+                if (functionArgs.type) {
+                  where.type = functionArgs.type;
+                }
+                
+                const transactionToDelete = await FinancialTransaction.findOne({
+                  where,
+                  order: [['transaction_date', 'DESC'], ['created_at', 'DESC']]
+                });
+                
+                if (transactionToDelete) {
+                  await transactionToDelete.destroy();
+                  functionResult = {
+                    success: true,
+                    message: `Успешно изтрита транзакция: ${transactionToDelete.description || 'Без описание'}`,
+                    deletedCount: 1
+                  };
+                } else {
+                  functionResult = {
+                    success: false,
+                    error: 'Не са намерени транзакции, които отговарят на зададените критерии'
+                  };
+                }
+              }
+            } catch (error) {
+              functionResult = {
+                success: false,
+                error: 'Грешка при изтриване на транзакция: ' + error.message
+              };
+            }
+          } else if (functionName === 'create_transaction') {
+            try {
+              const createResult = await executeAction(userId, {
+                action: 'create',
+                amount: parseFloat(functionArgs.amount) || 0,
+                type: functionArgs.type || 'expense',
+                description: functionArgs.description || null,
+                products: Array.isArray(functionArgs.products) ? functionArgs.products : (functionArgs.products ? [functionArgs.products] : null),
+                category: functionArgs.category || null
+              });
+              
+              if (createResult.success) {
+                functionResult = {
+                  success: true,
+                  message: createResult.message || 'Транзакцията е създадена успешно',
+                  transaction: createResult.transaction
+                };
+              } else {
+                functionResult = {
+                  success: false,
+                  error: createResult.error || 'Грешка при създаване на транзакция'
+                };
+              }
+            } catch (error) {
+              console.error('Error in create_transaction tool:', error);
+              console.error('Error stack:', error.stack);
+              functionResult = {
+                success: false,
+                error: 'Грешка при създаване на транзакция: ' + (error.message || 'Неизвестна грешка')
+              };
+            }
+          }
+          
+          toolResults.push({
+            tool_call_id: toolCall.id,
+            role: 'tool',
+            name: functionName,
+            content: JSON.stringify(functionResult)
+          });
+        }
+        
+        const followUpResponse = await axios.post(
+          'https://api.openai.com/v1/chat/completions',
+          {
+            model: defaultModel,
+            messages: [
+              {
+                role: 'system',
+                content: 'Ти си приятелски финансов съветник. Говориш с потребителя като с приятел - естествено, разговорно, но полезно. Отговори на български език.'
+              },
+              {
+                role: 'user',
+                content: `Финансови данни:\n${JSON.stringify(financialData)}\n\nВъпрос: "${userMessage}"`
+              },
+              message,
+              ...toolResults
+            ],
+            tools: tools,
+            tool_choice: 'auto',
+            temperature: 0.2,
+            max_tokens: 512
+          },
+          {
+            headers: {
+              'Authorization': `Bearer ${apiKey}`,
+              'Content-Type': 'application/json'
+            },
+            timeout: 30000
+          }
+        );
+        
+        if (followUpResponse.data && followUpResponse.data.choices && followUpResponse.data.choices.length > 0) {
+          const responseText = followUpResponse.data.choices[0].message?.content?.trim() || '';
+          
+          if (responseText && responseText.length >= 10) {
+            return {
+              success: true,
+              response: responseText,
+              context: context,
+              lastTransaction: lastTransaction,
+              action: lastTransaction ? 'show_last_transaction' : null
             };
           }
         }
+      } else {
+        const responseText = message.content?.trim() || '';
         
-        return {
-          success: true,
-          response: responseText,
-          context: context,
-          lastTransaction: lastTransaction
-        };
+        if (responseText && responseText.length >= 10) {
+          let lastTransaction = null;
+          if (context.recentTransactions && context.recentTransactions.length > 0) {
+            const firstTrans = context.recentTransactions[0];
+            if (userMessage.toLowerCase().includes('последн') || userMessage.toLowerCase().includes('най-нов') || userMessage.toLowerCase().includes('last')) {
+              lastTransaction = {
+                id: firstTrans.id,
+                date: firstTrans.date,
+                description: firstTrans.description,
+                amount: typeof firstTrans.amount === 'number' ? firstTrans.amount : (typeof firstTrans.amount === 'string' ? parseFloat(firstTrans.amount.replace(/[€\s]/g, '')) : 0),
+                type: firstTrans.type,
+                category: firstTrans.category
+              };
+            }
+          }
+          
+          return {
+            success: true,
+            response: responseText,
+            context: context,
+            lastTransaction: lastTransaction
+          };
+        }
       }
     }
 
@@ -883,6 +1383,8 @@ const chatWithAI = async (userId, userMessage, apiKey, model, previousAction = n
       error: 'AI не върна валиден отговор. Моля опитайте отново.'
     };
   } catch (error) {
+    console.error('Error in chatWithAI:', error);
+    
     if (error.response) {
       const status = error.response.status;
       const errorMsg = error.response.data?.error?.message || error.response.data?.message || '';
@@ -890,7 +1392,7 @@ const chatWithAI = async (userId, userMessage, apiKey, model, previousAction = n
       if (status === 401 || status === 403) {
         return {
           success: false,
-          error: 'Невалиден API ключ. Моля проверете GROQ_API_KEY в .env файла.'
+          error: 'Невалиден API ключ. Моля проверете OPENAI_API_KEY в .env файла.'
         };
       }
       if (status === 429) {
@@ -901,7 +1403,7 @@ const chatWithAI = async (userId, userMessage, apiKey, model, previousAction = n
         
         try {
           const retryResponse = await axios.post(
-            'https://api.groq.com/openai/v1/chat/completions',
+            'https://api.openai.com/v1/chat/completions',
             {
               model: defaultModel,
               messages: [
