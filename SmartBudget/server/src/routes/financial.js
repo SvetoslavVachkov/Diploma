@@ -27,8 +27,7 @@ const {
   addToGoalHandler,
   getGoalsSummaryHandler,
   getProductsReportHandler,
-  getGoalAdviceHandler,
-  chatHandler
+  getGoalAdviceHandler
 } = require('../controllers/financialController');
 const {
   importCSVHandler,
@@ -75,7 +74,6 @@ router.get('/reports/spending', authenticateToken, getSpendingReportHandler);
 router.get('/reports/spending/analysis', authenticateToken, getReportAnalysisHandler);
 router.get('/reports/products', authenticateToken, getProductsReportHandler);
 router.get('/advice', authenticateToken, getAdviceHandler);
-router.post('/ai/chat', authenticateToken, chatHandler);
 
 router.post('/goals', authenticateToken, createGoalHandler);
 router.get('/goals', authenticateToken, getGoalsHandler);

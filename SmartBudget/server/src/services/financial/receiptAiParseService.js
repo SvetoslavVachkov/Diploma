@@ -22,26 +22,26 @@ const extractJsonObject = (text) => {
   return null;
 };
 
-const parseReceiptWithAI = async (receiptText, { apiKey, model, useGroq = true } = {}) => {
+const parseReceiptWithAI = async (receiptText, { apiKey, model, useOpenAI = true } = {}) => {
   if (!receiptText) return null;
 
   const text = String(receiptText);
   const clipped = text.length > 4000 ? text.slice(0, 4000) : text;
 
-  if (useGroq && apiKey) {
+  if (useOpenAI && apiKey) {
     try {
-      const groqResult = await analyzeProductsFromReceipt(clipped, apiKey, model || 'llama-3.1-8b-instant');
+      const openaiResult = await analyzeProductsFromReceipt(clipped, apiKey, model || 'gpt-4o-mini');
       
-      if (groqResult && groqResult.products && groqResult.products.length > 0) {
-        const totalAmount = groqResult.amount_eur || groqResult.products.reduce((sum, p) => sum + (p.total_price || 0), 0);
+      if (openaiResult && openaiResult.products && openaiResult.products.length > 0) {
+        const totalAmount = openaiResult.amount_eur || openaiResult.products.reduce((sum, p) => sum + (p.total_price || 0), 0);
         return {
-          merchant: groqResult.merchant || null,
+          merchant: openaiResult.merchant || null,
           amount_eur: totalAmount > 0 ? totalAmount : null,
-          date: groqResult.date || null,
-          products: groqResult.products
+          date: openaiResult.date || null,
+          products: openaiResult.products
         };
       }
-    } catch (groqError) {
+    } catch (openaiError) {
     }
   }
 

@@ -2,13 +2,13 @@ const axios = require('axios');
 
 const generateProfessionalReportAnalysis = async (reportData, options = {}) => {
   try {
-    const groqApiKey = options.groqApiKey || process.env.GROQ_API_KEY;
-    const groqModel = options.groqModel || process.env.GROQ_MODEL || 'llama-3.1-8b-instant';
+    const openaiApiKey = options.openaiApiKey || process.env.OPENAI_API_KEY;
+    const openaiModel = options.openaiModel || process.env.OPENAI_MODEL || 'gpt-4o-mini';
 
-    if (!groqApiKey) {
+    if (!openaiApiKey) {
       return {
         success: false,
-        error: 'Groq API key not configured'
+        error: 'OpenAI API key not configured'
       };
     }
 
@@ -35,16 +35,17 @@ ${topCategories.length > 0 ? topCategories.map((cat, i) => `${i + 1}. ${cat.cate
 ${insights.highest_spending_day ? `- Най-висок разход ден: ${insights.highest_spending_day.date} - ${insights.highest_spending_day.amount.toFixed(2)} €\n` : ''}${insights.largest_transaction ? `- Най-голяма транзакция: ${insights.largest_transaction.description} - ${insights.largest_transaction.amount.toFixed(2)} €\n` : ''}${insights.most_frequent_category ? `- Най-честа категория: ${insights.most_frequent_category.category_name} (${insights.most_frequent_category.count} транзакции)\n` : ''}
 
 ИНСТРУКЦИИ ЗА АНАЛИЗ:
-1. Направи професионален финансов анализ на данните
-2. Идентифицирай основните трендове в разходите
-3. Анализирай структурата на разходите по категории
-4. Оцени финансовото здраве (баланс, разходи спрямо приходи)
-5. Идентифицирай потенциални проблемни области (високи разходи, чести транзакции)
-6. Давай конкретни наблюдения базирани на числата
-7. Предложи конкретни действия за оптимизация на разходите
-8. Ако има данни за най-висок разход ден, анализирай защо
-9. Ако има доминираща категория, коментирай значението
-10. Бъди професионален, обективен и конкретен
+1. Направи професионален финансов анализ на данните - анализирай САМО това което виждаш в данните
+2. Идентифицирай основните трендове в разходите и приходите базирани на реалните числа
+3. Анализирай структурата на разходите по категории - използвай конкретните категории от данните
+4. Оцени финансовото здраве (баланс, разходи спрямо приходи) базирано на реалните суми
+5. Идентифицирай потенциални проблемни области (високи разходи, чести транзакции) базирано на данните
+6. Давай конкретни наблюдения базирани СТРОГО на числата от данните - НЕ измисляй категории или трендове
+7. Предложи конкретни действия за оптимизация базирани на реалните категории и суми от данните
+8. Ако има данни за най-висок разход ден, анализирай защо базирано на конкретните транзакции
+9. Ако има доминираща категория, коментирай значението базирано на реалните проценти и суми
+10. Бъди професионален, обективен и конкретен - използвай САМО данните които виждаш, НЕ предполагай или измисляй
+11. НЕ фиксирай се на храна или здраве - анализирай каквото виждаш в данните, независимо от категорията
 
 ФОРМАТ НА ОТЧЕТА:
 Отговори с структуриран професионален финансов отчет на български език, който включва:
@@ -57,9 +58,9 @@ ${insights.highest_spending_day ? `- Най-висок разход ден: ${in
 Бъди професионален, използвай финансови термини, и давай конкретни числа и проценти.`;
 
     const response = await axios.post(
-      'https://api.groq.com/openai/v1/chat/completions',
+      'https://api.openai.com/v1/chat/completions',
       {
-        model: groqModel,
+        model: openaiModel,
         messages: [
           {
             role: 'system',
@@ -75,7 +76,7 @@ ${insights.highest_spending_day ? `- Най-висок разход ден: ${in
       },
       {
         headers: {
-          'Authorization': `Bearer ${groqApiKey}`,
+          'Authorization': `Bearer ${openaiApiKey}`,
           'Content-Type': 'application/json'
         },
         timeout: 30000

@@ -94,8 +94,8 @@ const createTransactionHandler = async (req, res) => {
       const { categorizeTransaction } = require('../services/financial/transactionCategorizationService');
       const amount = parseFloat(transactionData.amount) || 0;
       const categorization = await categorizeTransaction(transactionData.description, amount, {
-        groqApiKey: process.env.GROQ_API_KEY,
-        groqModel: process.env.GROQ_MODEL || 'llama-3.1-8b-instant',
+        openaiApiKey: process.env.OPENAI_API_KEY,
+        openaiModel: process.env.OPENAI_MODEL || 'gpt-4o-mini',
         hfApiKey: process.env.HF_TXN_API_KEY,
         hfModel: process.env.HF_TXN_MODEL,
         transactionType: transactionData.type || 'expense',
@@ -1038,10 +1038,10 @@ const chatHandler = async (req, res) => {
       });
     }
 
-    const groqApiKey = process.env.GROQ_API_KEY;
-    const groqModel = process.env.GROQ_MODEL || 'llama-3.1-8b-instant';
+    const openaiApiKey = process.env.OPENAI_API_KEY;
+    const openaiModel = process.env.OPENAI_MODEL || 'gpt-4o-mini';
 
-    const result = await chatWithAI(userId, message.trim(), groqApiKey, groqModel, previousAction || null, previousActionData || null);
+    const result = await chatWithAI(userId, message.trim(), openaiApiKey, openaiModel, previousAction || null, previousActionData || null);
 
     if (result.success) {
       res.status(200).json({

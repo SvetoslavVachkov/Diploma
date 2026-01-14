@@ -1006,23 +1006,23 @@ const importCSVTransactions = async (userId, filePath, options = {}) => {
           if (!seenKeys.has(key)) {
             parsedTransactions.push(tx);
             seenKeys.add(key);
-          }
-        }
-        
+    }
+  }
+  
         for (const tx of fallbackParsed) {
           const key = `${tx.date}_${tx.amount.toFixed(2)}_${tx.description.substring(0, 30)}`;
           if (!seenKeys.has(key)) {
             parsedTransactions.push(tx);
             seenKeys.add(key);
           }
-        }
-        
+  }
+  
         if (parsedTransactions.length === 0 && aiError) {
           return {
             success: false,
             error: `AI PDF parsing failed (${aiError.message}). Fallback parsing also found no transactions.`
           };
-        }
+  }
   
         if (parsedTransactions.length === 0) {
           return {
@@ -1222,8 +1222,8 @@ const importCSVTransactions = async (userId, filePath, options = {}) => {
       } else {
         try {
           const categorizationOptions = {
-            groqApiKey: process.env.GROQ_API_KEY,
-            groqModel: process.env.GROQ_MODEL || 'llama-3.1-8b-instant',
+            openaiApiKey: process.env.OPENAI_API_KEY,
+            openaiModel: process.env.OPENAI_MODEL || 'gpt-4o-mini',
             transactionType: transactionType,
             userId
           };

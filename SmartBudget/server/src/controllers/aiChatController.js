@@ -20,8 +20,8 @@ const chatHandler = async (req, res) => {
       });
     }
 
-    const apiKey = process.env.GROQ_API_KEY;
-    const model = process.env.GROQ_MODEL || 'llama-3.1-8b-instant';
+    const apiKey = process.env.OPENAI_API_KEY;
+    const model = process.env.OPENAI_MODEL || 'gpt-4o-mini';
 
     const previousAction = req.session.pendingAction || null;
     const previousActionData = req.session.pendingActionData || null;
@@ -45,8 +45,13 @@ const chatHandler = async (req, res) => {
         req.session.pendingAction = result.action;
         req.session.pendingActionData = result.actionData;
       } else {
-        req.session.pendingAction = null;
-        req.session.pendingActionData = null;
+        if (result.lastTransaction) {
+          req.session.pendingAction = 'show_last_transaction';
+          req.session.pendingActionData = { lastTransaction: result.lastTransaction };
+        } else {
+          req.session.pendingAction = null;
+          req.session.pendingActionData = null;
+        }
       }
       
       if (result.data) {
@@ -66,10 +71,12 @@ const chatHandler = async (req, res) => {
       });
     }
   } catch (error) {
+    console.error('Error in chatHandler:', error);
+    console.error('Error stack:', error.stack);
     res.status(500).json({
       status: 'error',
       message: 'Failed to process chat message',
-      error: error.message
+      error: error.message || 'Unknown error'
     });
   }
 };
