@@ -1,4 +1,4 @@
-const { FinancialTransaction, FinancialCategory, Budget } = require('../../models');
+const { FinancialTransaction, FinancialCategory, Budget, Product, ReceiptProduct } = require('../../models');
 const { Op } = require('sequelize');
 
 const getMonthlyReport = async (userId, year, month) => {
@@ -498,11 +498,92 @@ ${topProducts.slice(0, 10).map((p, i) => `${i + 1}. ${p.product_name} - купе
   }
 };
 
+/**
+ * Списък от продукти за потребителя (от receipt_products към негови транзакции).
+ * Поддържа пагинация и търсене по име.
+ * GET /api/financial/products
+ */
+const getProductsList = async (userId, { limit = 50, page = 1, search } = {}) => {
+  try {
+    const lim = Math.min(Math.max(parseInt(limit, 10) || 50, 1), 200);
+    const pg = Math.max(parseInt(page, 10) || 1, 1);
+    const offset = (pg - 1) * lim;
+
+    const transactions = await FinancialTransaction.findAll({
+      where: { user_id: userId },
+      attributes: ['id']
+    });
+    const transactionIds = transactions.map(t => t.id).filter(Boolean);
+
+    if (transactionIds.length === 0) {
+      return {
+        success: true,
+        products: [],
+        pagination: { total: 0, pages: 0, page: pg, limit: lim }
+      };
+    }
+
+    const receiptProducts = await ReceiptProduct.findAll({
+      where: { transaction_id: { [Op.in]: transactionIds } },
+      attributes: ['product_id'],
+      raw: true
+    });
+    const productIds = [...new Set(receiptProducts.map(r => r.product_id).filter(Boolean))];
+
+    if (productIds.length === 0) {
+      return {
+        success: true,
+        products: [],
+        pagination: { total: 0, pages: 0, page: pg, limit: lim }
+      };
+    }
+
+    const productWhere = { id: { [Op.in]: productIds } };
+    const q = String(search || '').trim();
+    if (q) {
+      productWhere[Op.and] = [
+        { id: { [Op.in]: productIds } },
+        {
+          [Op.or]: [
+            { name: { [Op.like]: `%${q}%` } },
+            { normalized_name: { [Op.like]: `%${q}%` } }
+          ]
+        }
+      ];
+      delete productWhere.id;
+    }
+
+    const { count, rows } = await Product.findAndCountAll({
+      where: productWhere,
+      order: [['name', 'ASC']],
+      limit: lim,
+      offset
+    });
+
+    const total = count;
+    const pages = Math.max(1, Math.ceil(total / lim));
+
+    return {
+      success: true,
+      products: rows,
+      pagination: { total, pages, page: pg, limit: lim }
+    };
+  } catch (err) {
+    return {
+      success: false,
+      error: err.message,
+      products: [],
+      pagination: { total: 0, pages: 0, page: 1, limit: 50 }
+    };
+  }
+};
+
 module.exports = {
   getMonthlyReport,
   getYearlyReport,
   getCategoryBreakdown,
   getTrends,
-  getProductsAnalysis
+  getProductsAnalysis,
+  getProductsList
 };
 

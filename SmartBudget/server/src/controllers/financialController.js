@@ -3,7 +3,7 @@ const { Op } = require('sequelize');
 const { normalizeMerchantKey, setMerchantOverride } = require('../services/financial/transactionCategorizationService');
 const { createTransaction, updateTransaction, deleteTransaction, getTransactions, getTransactionById, getTransactionSummary } = require('../services/financial/transactionService');
 const { createBudget, updateBudget, deleteBudget, getBudgets, getBudgetById, updateAllBudgetsSpentAmount } = require('../services/financial/budgetService');
-const { getMonthlyReport, getYearlyReport, getCategoryBreakdown, getTrends, getProductsAnalysis } = require('../services/financial/analyticsService');
+const { getMonthlyReport, getYearlyReport, getCategoryBreakdown, getTrends, getProductsAnalysis, getProductsList } = require('../services/financial/analyticsService');
 const { createGoal, updateGoal, deleteGoal, getGoals, getGoalById, addToGoal, getGoalsSummary } = require('../services/financial/goalService');
 const { chatWithAI } = require('../services/financial/aiChatService');
 
@@ -946,6 +946,46 @@ const getGoalsSummaryHandler = async (req, res) => {
   }
 };
 
+const getProductsHandler = async (req, res) => {
+  try {
+    const userId = req.user?.id;
+
+    if (!userId) {
+      return res.status(401).json({
+        status: 'error',
+        message: 'Authentication required'
+      });
+    }
+
+    const limit = req.query.limit;
+    const page = req.query.page;
+    const search = req.query.search;
+
+    const result = await getProductsList(userId, { limit, page, search });
+
+    if (result.success) {
+      res.status(200).json({
+        status: 'success',
+        data: {
+          products: result.products,
+          pagination: result.pagination
+        }
+      });
+    } else {
+      res.status(400).json({
+        status: 'error',
+        message: result.error
+      });
+    }
+  } catch (error) {
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to get products list',
+      error: error.message
+    });
+  }
+};
+
 const getProductsReportHandler = async (req, res) => {
   try {
     const userId = req.user?.id;
@@ -1060,6 +1100,8 @@ const chatHandler = async (req, res) => {
       });
     }
   } catch (error) {
+    console.error('Chat handler error:', error?.message || error);
+    if (error?.stack) console.error(error.stack);
     res.status(500).json({
       status: 'error',
       message: 'Failed to process chat message',
@@ -1093,6 +1135,7 @@ module.exports = {
   getGoalByIdHandler,
   addToGoalHandler,
   getGoalsSummaryHandler,
+  getProductsHandler,
   getProductsReportHandler,
   getGoalAdviceHandler,
   chatHandler

@@ -37,10 +37,53 @@ const isValidDateString = (date) => {
   return false;
 };
 
-const parseStatementWithAI = async (statementText, { apiKey, model } = {}) => {
-  if (!apiKey || !model || !statementText) {
-    return [];
+const HF_ROUTER_URL = 'https://router.huggingface.co/v1/chat/completions';
+const GROQ_CHAT_URL = 'https://api.groq.com/openai/v1/chat/completions';
+
+async function chatCompletion(prompt, { apiKey, model, groqApiKey, groqModel }, maxTokens = 2000) {
+  const headers = { 'Content-Type': 'application/json' };
+  const timeout = 60000;
+
+  if (apiKey && model) {
+    try {
+      const response = await axios.post(HF_ROUTER_URL, {
+        model,
+        messages: [{ role: 'user', content: prompt }],
+        max_tokens: maxTokens,
+        temperature: 0.1
+      }, {
+        headers: { ...headers, 'Authorization': `Bearer ${apiKey}` },
+        timeout
+      });
+      const msg = response.data?.choices?.[0]?.message;
+      if (msg?.content) return msg.content;
+    } catch (err) {
+      if (!(groqApiKey && groqModel)) throw err;
+    }
   }
+
+  if (groqApiKey && groqModel) {
+    const response = await axios.post(GROQ_CHAT_URL, {
+      model: groqModel,
+      messages: [{ role: 'user', content: prompt }],
+      max_tokens: maxTokens,
+      temperature: 0.1
+    }, {
+      headers: { ...headers, 'Authorization': `Bearer ${groqApiKey}` },
+      timeout
+    });
+    const msg = response.data?.choices?.[0]?.message;
+    if (msg?.content) return msg.content;
+  }
+
+  return '';
+}
+
+const parseStatementWithAI = async (statementText, { apiKey, model, groqApiKey, groqModel } = {}) => {
+  if (!statementText) return [];
+  if (!apiKey && !groqApiKey) return [];
+  if (apiKey && !model && !groqModel) return [];
+  if (groqApiKey && !groqModel) return [];
 
   const text = String(statementText);
   const clipped = text.length > 20000 ? text.slice(0, 20000) : text;
@@ -70,49 +113,18 @@ CRITICAL RULES:
 STATEMENT TEXT:
 ${clipped}`;
 
-  let response;
+  let outputText = '';
   try {
-    response = await axios.post(
-      `https://api-inference.huggingface.co/models/${model}`,
-      {
-        inputs: prompt,
-        parameters: {
-          max_new_tokens: 2000,
-          return_full_text: false,
-          temperature: 0.1
-        }
-      },
-      {
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json'
-        },
-        timeout: 60000
-      }
-    );
+    outputText = await chatCompletion(prompt, { apiKey, model, groqApiKey, groqModel }, 2000);
   } catch (error) {
     const status = error?.response?.status;
     if (status) {
-      throw new Error(`Hugging Face inference error ${status} for model "${model}"`);
+      throw new Error(`AI inference error ${status}: ${error.response?.data?.error?.message || error.message}`);
     }
-    throw new Error(`Hugging Face inference request failed for model "${model}": ${error.message}`);
+    throw new Error(`AI inference request failed: ${error.message}`);
   }
 
-  let outputText = '';
-  if (Array.isArray(response.data)) {
-    const first = response.data[0];
-    if (first && typeof first.generated_text === 'string') {
-      outputText = first.generated_text;
-    } else {
-      outputText = JSON.stringify(response.data);
-    }
-  } else if (response.data && typeof response.data.generated_text === 'string') {
-    outputText = response.data.generated_text;
-  } else if (typeof response.data === 'string') {
-    outputText = response.data;
-  } else {
-    outputText = JSON.stringify(response.data || '');
-  }
+  if (!outputText) return [];
 
   const parsed = extractJsonArray(outputText);
   if (!Array.isArray(parsed)) {

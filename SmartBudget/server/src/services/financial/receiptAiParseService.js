@@ -65,49 +65,26 @@ Rules:
 OCR TEXT:
 ${clipped}`;
 
+  const HF_ROUTER_URL = 'https://router.huggingface.co/v1/chat/completions';
+
   let response;
   try {
-    const endpoints = [
-      `https://api-inference.huggingface.co/models/${model}`,
-      `https://inference-api.huggingface.co/models/${model}`
-    ];
-    
-    let lastError = null;
-    for (const endpoint of endpoints) {
-      try {
-        response = await axios.post(
-          endpoint,
-          {
-            inputs: prompt,
-            parameters: {
-              max_new_tokens: 256,
-              return_full_text: false,
-              temperature: 0.2
-            }
-          },
-          {
-            headers: {
-              Authorization: `Bearer ${apiKey}`,
-              'Content-Type': 'application/json'
-            },
-            timeout: 60000
-          }
-        );
-        if (response.status === 200 || response.status === 201) {
-          break;
-        }
-      } catch (endpointError) {
-        lastError = endpointError;
-        if (endpointError.response && (endpointError.response.status === 410 || endpointError.response.status === 404)) {
-          continue;
-        }
-        throw endpointError;
+    response = await axios.post(
+      HF_ROUTER_URL,
+      {
+        model,
+        messages: [{ role: 'user', content: prompt }],
+        max_tokens: 256,
+        temperature: 0.2
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json'
+        },
+        timeout: 60000
       }
-    }
-    
-    if (!response) {
-      throw lastError || new Error(`Hugging Face inference failed for model "${model}"`);
-    }
+    );
   } catch (error) {
     const status = error?.response?.status;
     if (status) {
@@ -117,15 +94,11 @@ ${clipped}`;
   }
 
   let outputText = '';
-  if (Array.isArray(response.data)) {
-    const first = response.data[0];
-    if (first && typeof first.generated_text === 'string') outputText = first.generated_text;
-    else outputText = JSON.stringify(response.data);
-  } else if (response.data && typeof response.data.generated_text === 'string') {
-    outputText = response.data.generated_text;
-  } else if (typeof response.data === 'string') {
-    outputText = response.data;
-  } else {
+  if (response.data && response.data.choices && response.data.choices[0]) {
+    const msg = response.data.choices[0].message;
+    outputText = (msg && msg.content) ? msg.content : '';
+  }
+  if (!outputText) {
     outputText = JSON.stringify(response.data || '');
   }
 

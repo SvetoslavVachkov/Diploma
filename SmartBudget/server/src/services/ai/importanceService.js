@@ -77,15 +77,15 @@ Article excerpt: "${excerpt || 'N/A'}"
 
 Respond with ONLY a JSON object: {"important": true/false, "score": 0-100, "reason": "brief explanation"}`;
 
+    const HF_ROUTER_URL = 'https://router.huggingface.co/v1/chat/completions';
+
     const response = await axios.post(
-      `https://api-inference.huggingface.co/models/${model}`,
+      HF_ROUTER_URL,
       {
-        inputs: prompt,
-        parameters: {
-          max_new_tokens: 150,
-          return_full_text: false,
-          temperature: 0.3
-        }
+        model,
+        messages: [{ role: 'user', content: prompt }],
+        max_tokens: 150,
+        temperature: 0.3
       },
       {
         headers: {
@@ -97,13 +97,9 @@ Respond with ONLY a JSON object: {"important": true/false, "score": 0-100, "reas
     );
 
     let outputText = '';
-    if (Array.isArray(response.data)) {
-      const first = response.data[0];
-      if (first && typeof first.generated_text === 'string') {
-        outputText = first.generated_text;
-      }
-    } else if (response.data && typeof response.data.generated_text === 'string') {
-      outputText = response.data.generated_text;
+    if (response.data && response.data.choices && response.data.choices[0]) {
+      const msg = response.data.choices[0].message;
+      outputText = (msg && msg.content) ? msg.content : '';
     }
 
     if (!outputText) {

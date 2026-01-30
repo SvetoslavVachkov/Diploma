@@ -44,12 +44,9 @@ const AIChat = () => {
           } else {
             setPendingAction(null);
             setPendingActionData(null);
-            if (response.data.data.action === 'create' || response.data.data.action === 'delete_all' || response.data.data.action === 'delete_specific' || response.data.data.action === 'create_goal' || response.data.data.action === 'delete_goal') {
+            if (['create', 'delete_all', 'delete_specific', 'create_goal', 'delete_goal'].includes(response.data.data.action)) {
               setTimeout(() => {
-                setMessages(prev => [...prev, { 
-                  role: 'assistant', 
-                  content: 'Контекстът е обновен. Можете да питате за актуални данни.' 
-                }]);
+                setMessages(prev => [...prev, { role: 'assistant', content: 'Контекстът е обновен. Можете да питате за актуални данни.' }]);
               }, 500);
             }
           }
@@ -58,15 +55,12 @@ const AIChat = () => {
           setPendingActionData(null);
         }
       } else {
-        setMessages(prev => [...prev, { 
-          role: 'assistant', 
-          content: `Грешка: ${response.data.message || 'Неизвестна грешка'}` 
-        }]);
+        setMessages(prev => [...prev, { role: 'assistant', content: `Грешка: ${response.data.message || 'Неизвестна грешка'}` }]);
       }
     } catch (error) {
-      setMessages(prev => [...prev, { 
-        role: 'assistant', 
-        content: `Грешка: ${error.response?.data?.message || error.message || 'Грешка при изпращане на съобщение'}` 
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: `Грешка: ${error.response?.data?.message || error.message || 'Грешка при изпращане на съобщение'}`
       }]);
     } finally {
       setLoading(false);
@@ -74,16 +68,27 @@ const AIChat = () => {
   };
 
   return (
-    <div style={styles.container}>
-      <h1 style={styles.title}>AI Чат</h1>
-      <div style={styles.chatContainer}>
-        <div style={styles.messages}>
+    <div className="page" style={{ maxWidth: 720, margin: '0 auto', display: 'flex', flexDirection: 'column', minHeight: 'calc(100vh - 12rem)' }}>
+      <h1 className="page-title" style={{ marginBottom: '1rem' }}>AI Чат</h1>
+      <div
+        style={{
+          flex: 1,
+          display: 'flex',
+          flexDirection: 'column',
+          background: 'var(--bg-card)',
+          borderRadius: 'var(--radius-lg)',
+          boxShadow: 'var(--shadow)',
+          border: '1px solid var(--border)',
+          overflow: 'hidden'
+        }}
+      >
+        <div style={{ flex: 1, overflowY: 'auto', padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
           {messages.length === 0 && (
-            <div style={styles.welcomeMessage}>
-              <p style={styles.welcomeText}>
+            <div style={{ padding: '1.5rem', background: 'var(--primary-light)', borderRadius: 'var(--radius)', borderLeft: '4px solid var(--primary)' }}>
+              <p style={{ marginBottom: '0.75rem', fontWeight: 500, color: 'var(--text)' }}>
                 Здравейте! Аз съм вашият финансов AI асистент. Можете да ме питате:
               </p>
-              <ul style={styles.welcomeList}>
+              <ul style={{ margin: 0, paddingLeft: '1.25rem', fontSize: '0.9rem', color: 'var(--text-muted)', lineHeight: 1.8 }}>
                 <li>Въпроси за вашите финанси (приходи, разходи, категории)</li>
                 <li>Да добавя, изтрия или проверя транзакции</li>
                 <li>Да управлявам финансови цели</li>
@@ -95,37 +100,46 @@ const AIChat = () => {
             <div
               key={idx}
               style={{
-                ...styles.message,
-                ...(msg.role === 'user' ? styles.userMessage : styles.assistantMessage)
+                maxWidth: '85%',
+                padding: '0.6rem 1rem',
+                borderRadius: 'var(--radius-lg)',
+                alignSelf: msg.role === 'user' ? 'flex-end' : 'flex-start',
+                background: msg.role === 'user' ? 'var(--primary)' : 'var(--bg-muted)',
+                color: msg.role === 'user' ? 'white' : 'var(--text)',
+                fontSize: '0.95rem',
+                lineHeight: 1.5,
+                whiteSpace: 'pre-wrap'
               }}
             >
-              <div style={styles.messageContent}>{msg.content}</div>
+              {msg.content}
             </div>
           ))}
           {loading && (
-            <div style={{...styles.message, ...styles.assistantMessage}}>
-              <div style={styles.messageContent}>Мисля...</div>
+            <div style={{
+              maxWidth: '85%',
+              padding: '0.6rem 1rem',
+              borderRadius: 'var(--radius-lg)',
+              alignSelf: 'flex-start',
+              background: 'var(--bg-muted)',
+              color: 'var(--text-muted)',
+              fontSize: '0.95rem'
+            }}>
+              Мисля…
             </div>
           )}
           <div ref={messagesEndRef} />
         </div>
-        <form onSubmit={sendMessage} style={styles.inputContainer}>
+        <form onSubmit={sendMessage} style={{ display: 'flex', gap: '0.5rem', padding: '1rem', borderTop: '1px solid var(--border)', background: 'var(--bg-muted)' }}>
           <input
             type="text"
+            className="input"
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Напишете съобщение..."
-            style={styles.input}
+            placeholder="Напишете съобщение…"
             disabled={loading}
+            style={{ flex: 1, margin: 0 }}
           />
-          <button
-            type="submit"
-            disabled={loading || !input.trim()}
-            style={{
-              ...styles.sendButton,
-              ...(loading || !input.trim() ? styles.sendButtonDisabled : {})
-            }}
-          >
+          <button type="submit" className="btn btn-primary" disabled={loading || !input.trim()}>
             Изпрати
           </button>
         </form>
@@ -134,113 +148,4 @@ const AIChat = () => {
   );
 };
 
-const styles = {
-  container: {
-    maxWidth: '900px',
-    margin: '0 auto',
-    height: 'calc(100vh - 200px)',
-    display: 'flex',
-    flexDirection: 'column'
-  },
-  title: {
-    fontSize: '36px',
-    fontWeight: 'bold',
-    color: '#1f2937',
-    marginBottom: '24px',
-    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-    WebkitBackgroundClip: 'text',
-    WebkitTextFillColor: 'transparent',
-    backgroundClip: 'text'
-  },
-  chatContainer: {
-    background: 'white',
-    borderRadius: '20px',
-    boxShadow: '0 8px 30px rgba(0,0,0,0.12)',
-    border: '1px solid rgba(102, 126, 234, 0.1)',
-    display: 'flex',
-    flexDirection: 'column',
-    height: '100%',
-    overflow: 'hidden'
-  },
-  messages: {
-    flex: 1,
-    overflowY: 'auto',
-    padding: '24px',
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '16px'
-  },
-  welcomeMessage: {
-    padding: '32px',
-    background: '#f0f9ff',
-    borderRadius: '16px',
-    border: '1px solid #bae6fd'
-  },
-  welcomeText: {
-    fontSize: '16px',
-    color: '#1e40af',
-    marginBottom: '16px',
-    fontWeight: '500'
-  },
-  welcomeList: {
-    fontSize: '14px',
-    color: '#1e3a8a',
-    lineHeight: '1.8',
-    paddingLeft: '20px'
-  },
-  message: {
-    maxWidth: '75%',
-    padding: '12px 16px',
-    borderRadius: '16px',
-    wordWrap: 'break-word'
-  },
-  userMessage: {
-    alignSelf: 'flex-end',
-    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-    color: 'white'
-  },
-  assistantMessage: {
-    alignSelf: 'flex-start',
-    background: '#f3f4f6',
-    color: '#1f2937'
-  },
-  messageContent: {
-    fontSize: '15px',
-    lineHeight: '1.6',
-    whiteSpace: 'pre-wrap'
-  },
-  inputContainer: {
-    display: 'flex',
-    gap: '12px',
-    padding: '20px',
-    borderTop: '1px solid #e5e7eb',
-    background: '#f9fafb'
-  },
-  input: {
-    flex: 1,
-    padding: '12px 16px',
-    fontSize: '15px',
-    border: '1px solid #d1d5db',
-    borderRadius: '12px',
-    outline: 'none',
-    transition: 'all 0.3s'
-  },
-  sendButton: {
-    padding: '12px 24px',
-    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-    color: 'white',
-    border: 'none',
-    borderRadius: '12px',
-    fontSize: '15px',
-    fontWeight: '600',
-    cursor: 'pointer',
-    transition: 'all 0.3s'
-  },
-  sendButtonDisabled: {
-    opacity: 0.5,
-    cursor: 'not-allowed'
-  }
-};
-
 export default AIChat;
-
