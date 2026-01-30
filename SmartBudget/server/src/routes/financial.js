@@ -26,6 +26,7 @@ const {
   getGoalByIdHandler,
   addToGoalHandler,
   getGoalsSummaryHandler,
+  getProductsHandler,
   getProductsReportHandler,
   getGoalAdviceHandler
 } = require('../controllers/financialController');
@@ -73,6 +74,7 @@ router.get('/reports/trends', authenticateToken, getTrendsHandler);
 router.get('/reports/spending', authenticateToken, getSpendingReportHandler);
 router.get('/reports/spending/analysis', authenticateToken, getReportAnalysisHandler);
 router.get('/reports/products', authenticateToken, getProductsReportHandler);
+router.get('/products', authenticateToken, getProductsHandler);
 router.get('/advice', authenticateToken, getAdviceHandler);
 
 router.post('/goals', authenticateToken, createGoalHandler);
