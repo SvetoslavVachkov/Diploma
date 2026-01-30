@@ -321,7 +321,7 @@ const parseActionCommand = (message, previousAction = null, previousActionData =
   }
   
   if (msgLower.includes('добави') || msgLower.includes('add') || msgLower.includes('създай') || msgLower.includes('create') || msgLower.includes('направи')) {
-    const amountMatch = normalizedMessage.match(/(\d+[.,]\d+|\d+)\s*(€|лв|eur|bgn|евро|лева|лева)?/i);
+    const amountMatch = message.match(/(\d+[.,]\d+|\d+)\s*(€|лв|eur|bgn|евро|лева|лева)?/i);
     let amount = null;
     if (amountMatch) {
       amount = parseFloat(amountMatch[1].replace(',', '.'));
@@ -330,7 +330,7 @@ const parseActionCommand = (message, previousAction = null, previousActionData =
       }
     }
     if (!amount || amount <= 0) {
-      const numberMatch = normalizedMessage.match(/\d+[.,]?\d*/);
+      const numberMatch = message.match(/\d+[.,]?\d*/);
       if (numberMatch) {
         amount = parseFloat(numberMatch[0].replace(',', '.'));
       }
@@ -430,7 +430,7 @@ const parseActionCommand = (message, previousAction = null, previousActionData =
     }
     
     if (!amount || amount <= 0) {
-      const numberMatch = normalizedMessage.match(/\d+[.,]?\d*/);
+      const numberMatch = message.match(/\d+[.,]?\d*/);
       if (numberMatch) {
         amount = parseFloat(numberMatch[0].replace(',', '.'));
       }
@@ -872,6 +872,45 @@ const chatWithAI = async (userId, userMessage, apiKey, model, previousAction = n
     }
   }
 
+  const msgLower = userMessage.toLowerCase().trim();
+  const asksAddTransaction = /\b(добави|добавиш|добавя|добавете)\b.*\b(транзакция|разход|приход)\b|\b(транзакция|разход|приход)\b.*\b(добави|добавиш|добавя|добавете)\b/i.test(msgLower) ||
+    /\b(можеш ли|може ли|искам|искаме)\b.*\b(да\s+)?(добавиш|добавя|добави)\b.*\b(транзакция)\b/i.test(msgLower);
+  const hasAmount = /\d[\d.,]*\s*(€|евро|евра|лв|лев|eur\.?)|(€|евро|лв|евра|eur\.?)\s*\d|\d+[.,]\d{2}/i.test(userMessage);
+  if (asksAddTransaction && !hasAmount) {
+    return {
+      success: true,
+      response: 'Разбрах! Моля посочи сума и описание, напр. „добави транзакция 25 € от BILLA“ или „добави разход 10 € храна от Kaufland“.'
+    };
+  }
+  if (asksAddTransaction && hasAmount) {
+    const amountMatch = userMessage.match(/(\d+(?:[.,]\d+)?)\s*(?:евро|евра|лв|лев|eur\.?|€)?|(?:евро|лв|евра|eur\.?|€)\s*(\d+(?:[.,]\d+)?)/i);
+    const amount = amountMatch ? parseFloat(String(amountMatch[1] || amountMatch[2] || '0').replace(',', '.')) : 0;
+    let description = null;
+    const fromMatch = userMessage.match(/\bот\s+(\S+)/i) || userMessage.match(/\bот\s+([a-zA-Zа-яА-ЯЁё0-9\-]+)/i);
+    if (fromMatch && fromMatch[1]) description = fromMatch[1].trim();
+    if (!description) {
+      const known = userMessage.match(/\b(Kaufland|кауфланд|LIDL|лидл|BILLA|билла|Lukoil|OMV|Shell|Fantastico|фантастико)\b/i);
+      if (known && known[1]) description = known[1];
+    }
+    if (amount > 0 && !Number.isNaN(amount)) {
+      try {
+        const actionResult = await executeAction(userId, {
+          action: 'create',
+          amount,
+          type: 'expense',
+          description: description || `Транзакция ${amount} €`
+        });
+        if (actionResult.success) {
+          return { success: true, response: actionResult.message, action: 'create', data: actionResult.transaction };
+        }
+        return { success: false, error: actionResult.error || 'Грешка при добавяне на транзакция.' };
+      } catch (e) {
+        console.error('Direct add transaction error:', e);
+        return { success: false, error: 'Грешка при добавяне на транзакция. Опитайте отново.' };
+      }
+    }
+  }
+
   const actionCommand = parseActionCommand(userMessage, previousAction, previousActionData);
   
   if (actionCommand && actionCommand.action === 'delete_all' && !actionCommand.confirmed) {
@@ -916,8 +955,17 @@ const chatWithAI = async (userId, userMessage, apiKey, model, previousAction = n
     }
   }
 
-  const context = await getFinancialContext(userId, 90);
-  
+  let context;
+  try {
+    context = await getFinancialContext(userId, 90);
+  } catch (ctxErr) {
+    console.error('getFinancialContext error:', ctxErr);
+    return {
+      success: false,
+      error: 'Неуспешно зареждане на финансовите данни. Моля опитайте отново по-късно.'
+    };
+  }
+
   const defaultModel = model || 'gpt-4o-mini';
 
   const tools = [
@@ -1018,23 +1066,25 @@ const chatWithAI = async (userId, userMessage, apiKey, model, previousAction = n
     }
   ];
 
+  const totals = context.totals || {};
+  const currentMonth = context.currentMonth || {};
   const financialData = {
     totals: {
-      income: context.totals.income.toFixed(2),
-      expense: context.totals.expense.toFixed(2),
-      balance: context.totals.balance.toFixed(2)
+      income: (totals.income != null ? Number(totals.income) : 0).toFixed(2),
+      expense: (totals.expense != null ? Number(totals.expense) : 0).toFixed(2),
+      balance: (totals.balance != null ? Number(totals.balance) : 0).toFixed(2)
     },
     currentMonth: {
-      income: context.currentMonth.income.toFixed(2),
-      expense: context.currentMonth.expense.toFixed(2),
-      balance: context.currentMonth.balance.toFixed(2)
+      income: (currentMonth.income != null ? Number(currentMonth.income) : 0).toFixed(2),
+      expense: (currentMonth.expense != null ? Number(currentMonth.expense) : 0).toFixed(2),
+      balance: (currentMonth.balance != null ? Number(currentMonth.balance) : 0).toFixed(2)
     },
     topCategories: (context.topCategories || []).slice(0, 10).map(c => ({
       name: c.category,
       total: c.total.toFixed(2),
       percentage: c.percentage.toFixed(1)
     })),
-    recentTransactions: context.recentTransactions.slice(0, 100).map(t => ({
+    recentTransactions: (context.recentTransactions || []).slice(0, 100).map(t => ({
       id: t.id,
       date: t.date,
       description: (t.description || '').substring(0, 80),
@@ -1055,11 +1105,15 @@ const chatWithAI = async (userId, userMessage, apiKey, model, previousAction = n
         messages: [
           {
             role: 'system',
-            content: 'Ти си приятелски финансов съветник с пълна достъп до базата данни. Говориш с потребителя като с приятел - естествено, разговорно, но полезно. КРИТИЧНО: Когато потребителят иска да направи НЕЩО (добави транзакция, изтрие транзакция, види транзакция, и т.н.), ВИНАГИ използвай съответните функции (create_transaction, delete_transaction, get_first_transaction, get_last_transaction) за да изпълниш действието ДИРЕКТНО в базата данни. НЕ чакай потвърждение - ако потребителят каже "добави транзакция" или "добави транзакция от BILLA" или подобно, ВИНАГИ използвай create_transaction веднага с всички параметри които можеш да извлечеш от съобщението (amount, description, type, category, products). Ако потребителят каже "изтрий я" или "изтрий последната", ВИНАГИ използвай delete_transaction веднага. Ако питат за "първа транзакция" или "последна транзакция", ВИНАГИ използвай съответната функция за да получиш точни данни от базата. Когато потребителят иска да добави транзакция с продукти (например "добави продукти цигари 1 бр"), използвай create_transaction с параметъра products като масив от стрингове. ЗАБРАНЕНО: Когато питат "как да спестя за [нещо]" или "къде харча най-много", НИКОГА не изброявай транзакции! ВИНАГИ анализирай topCategories масива, изчисли месечни разходи и давай КОНКРЕТНИ съвети с РЕАЛНИ числа! Отговори на български език.'
+            content: 'Ти си приятелски финансов съветник с пълна достъп до базата данни. Говориш с потребителя като с приятел - естествено, разговорно, но полезно. ПРИОРИТЕТ 1 – СВЕТСКИ СЪОБЩЕНИЯ: Ако потребителят САМО поздрави, пита "как си", "как е", "здравей", "хай", "мерси", "благодаря", "добре" или има подобен светски разговор – отговори КРАТКО и ЕСТЕСТВЕНО (1–2 изречения) на български. НЕ анализирай разходи, НЕ давай съвети за спестяване, НЕ цитирай данни, НЕ извиквай инструменти. Пример: "Здравей! Добре съм, благодаря! С какво мога да ти помогна – разходи, транзакции или цели?" Само когато поискат КОНКРЕТНО информация за финанси, разходи, транзакции или цели – тогава използвай данните и/или инструментите. КРИТИЧНО: Когато потребителят иска да направи НЕЩО (добави транзакция, изтрие транзакция, види транзакция, и т.н.), използвай съответните функции. За create_transaction: извиквай я САМО ако потребителят е посочил СУМА (и по възможност описание). Ако каже само "добави транзакция" или "можеш ли да добавиш транзакция" без сума – НЕ извиквай create_transaction; отговори с молба за сума и описание (напр. "добави транзакция 25 € от BILLA"). Ако е посочил сума и/или описание ("добави транзакция от BILLA", "добави 20 € LIDL" и т.н.), ВИНАГИ използвай create_transaction веднага с параметрите от съобщението (amount, description, type, category, products). За изтриване/преглед – ВИНАГИ използвай delete_transaction, get_first_transaction, get_last_transaction при поискване. Ако потребителят каже "изтрий я" или "изтрий последната", ВИНАГИ използвай delete_transaction веднага. Ако питат за "първа транзакция" или "последна транзакция", ВИНАГИ използвай съответната функция за да получиш точни данни от базата. Когато потребителят иска да добави транзакция с продукти (например "добави продукти цигари 1 бр"), използвай create_transaction с параметъра products като масив от стрингове. ЗАБРАНЕНО: Когато питат "как да спестя за [нещо]" или "къде харча най-много", НИКОГА не изброявай транзакции! ВИНАГИ анализирай topCategories масива, изчисли месечни разходи и давай КОНКРЕТНИ съвети с РЕАЛНИ числа! Отговори на български език.'
           },
           {
             role: 'user',
             content: `Финансови данни:\n${JSON.stringify(financialData)}\n\nВъпрос: "${userMessage}"\n\nПРАВИЛА:
+0. СВЕТСКИ СЪОБЩЕНИЯ (НАЙ-ВИСОК ПРИОРИТЕТ): Ако потребителят САМО поздрави, пита "как си", "как е", "здравей", "хай", "мерси", "благодаря", "добре" и т.н. – отговори КРАТКО и ЕСТЕСТВЕНО (1–2 изречения) на български. НЕ анализирай разходи, НЕ давай съвети, НЕ цитирай financialData, НЕ извиквай инструменти. Пример: "Здравей! Добре съм, благодаря! С какво мога да ти помогна?"
+
+0b. ДОБАВЯНЕ НА ТРАНЗАКЦИЯ БЕЗ СУМА: Ако потребителят каже "добави транзакция", "можеш ли да добавиш транзакция" и т.н. БЕЗ да посочи сума (и описание) – НЕ извиквай create_transaction. Отговори с 1–2 изречения: помоли го да посочи сума и описание. Пример: "Разбрах! Моля посочи сума и описание, напр. „добави транзакция 25 € от BILLA“ или „добави разход 10 € храна от Kaufland“."
+
 1. НИКОГА НЕ ИЗМИСЛЯЙ ДАННИ. Използвай САМО данните от financialData. recentTransactions е сортиран по дата DESCENDING (най-новите са ПЪРВИ). recentTransactions[0] е ВИНАГИ най-новата/последната транзакция. recentTransactions[recentTransactions.length - 1] е ВИНАГИ най-старата/първата транзакция.
 
 2. ЗА СЪВЕТИ ЗА СПЕСТЯВАНЕ - ЗАБРАНЕНО Е ДА ИЗБРОЯВАШ ТРАНЗАКЦИИ! СЛЕДВАЙ ТОЧНО ТАЗИ СТРУКТУРА:
@@ -1127,57 +1181,69 @@ const chatWithAI = async (userId, userMessage, apiKey, model, previousAction = n
         let lastTransaction = null;
         
         for (const toolCall of message.tool_calls) {
-          const functionName = toolCall.function.name;
-          const functionArgs = JSON.parse(toolCall.function.arguments || '{}');
+          const functionName = toolCall.function?.name;
+          let functionArgs = {};
+          try {
+            functionArgs = JSON.parse(toolCall.function?.arguments || '{}');
+          } catch (_) {
+            functionArgs = {};
+          }
+          if (typeof functionArgs !== 'object' || functionArgs === null) functionArgs = {};
           
           let functionResult = null;
           
           if (functionName === 'get_first_transaction') {
-            const firstTrans = await FinancialTransaction.findOne({
-              where: { user_id: userId },
-              order: [['transaction_date', 'ASC'], ['created_at', 'ASC']],
-              include: [{
-                model: FinancialCategory,
-                as: 'category',
-                attributes: ['name', 'type']
-              }]
-            });
-            
-            if (firstTrans) {
-              functionResult = {
-                id: firstTrans.id,
-                date: firstTrans.transaction_date,
-                description: firstTrans.description,
-                amount: parseFloat(firstTrans.amount),
-                type: firstTrans.type,
-                category: firstTrans.category?.name || 'Unknown'
-              };
-            } else {
-              functionResult = { error: 'Не са намерени транзакции' };
+            try {
+              const firstTrans = await FinancialTransaction.findOne({
+                where: { user_id: userId },
+                order: [['transaction_date', 'ASC'], ['created_at', 'ASC']],
+                include: [{
+                  model: FinancialCategory,
+                  as: 'category',
+                  attributes: ['name', 'type']
+                }]
+              });
+              if (firstTrans) {
+                functionResult = {
+                  id: firstTrans.id,
+                  date: firstTrans.transaction_date,
+                  description: firstTrans.description,
+                  amount: parseFloat(firstTrans.amount),
+                  type: firstTrans.type,
+                  category: firstTrans.category?.name || 'Unknown'
+                };
+              } else {
+                functionResult = { error: 'Не са намерени транзакции' };
+              }
+            } catch (e) {
+              functionResult = { error: 'Грешка при търсене на транзакция.' };
             }
           } else if (functionName === 'get_last_transaction') {
-            const lastTrans = await FinancialTransaction.findOne({
-              where: { user_id: userId },
-              order: [['transaction_date', 'DESC'], ['created_at', 'DESC']],
-              include: [{
-                model: FinancialCategory,
-                as: 'category',
-                attributes: ['name', 'type']
-              }]
-            });
-            
-            if (lastTrans) {
-              functionResult = {
-                id: lastTrans.id,
-                date: lastTrans.transaction_date ? new Date(lastTrans.transaction_date).toISOString().split('T')[0] : null,
-                description: lastTrans.description,
-                amount: parseFloat(lastTrans.amount),
-                type: lastTrans.type,
-                category: lastTrans.category?.name || 'Unknown'
-              };
-              lastTransaction = functionResult;
-            } else {
-              functionResult = { error: 'Не са намерени транзакции' };
+            try {
+              const lastTrans = await FinancialTransaction.findOne({
+                where: { user_id: userId },
+                order: [['transaction_date', 'DESC'], ['created_at', 'DESC']],
+                include: [{
+                  model: FinancialCategory,
+                  as: 'category',
+                  attributes: ['name', 'type']
+                }]
+              });
+              if (lastTrans) {
+                functionResult = {
+                  id: lastTrans.id,
+                  date: lastTrans.transaction_date ? new Date(lastTrans.transaction_date).toISOString().split('T')[0] : null,
+                  description: lastTrans.description,
+                  amount: parseFloat(lastTrans.amount),
+                  type: lastTrans.type,
+                  category: lastTrans.category?.name || 'Unknown'
+                };
+                lastTransaction = functionResult;
+              } else {
+                functionResult = { error: 'Не са намерени транзакции' };
+              }
+            } catch (e) {
+              functionResult = { error: 'Грешка при търсене на транзакция.' };
             }
           } else if (functionName === 'delete_transaction') {
             try {
@@ -1267,26 +1333,34 @@ const chatWithAI = async (userId, userMessage, apiKey, model, previousAction = n
             }
           } else if (functionName === 'create_transaction') {
             try {
-              const createResult = await executeAction(userId, {
-                action: 'create',
-                amount: parseFloat(functionArgs.amount) || 0,
-                type: functionArgs.type || 'expense',
-                description: functionArgs.description || null,
-                products: Array.isArray(functionArgs.products) ? functionArgs.products : (functionArgs.products ? [functionArgs.products] : null),
-                category: functionArgs.category || null
-              });
-              
-              if (createResult.success) {
-                functionResult = {
-                  success: true,
-                  message: createResult.message || 'Транзакцията е създадена успешно',
-                  transaction: createResult.transaction
-                };
-              } else {
+              const amount = parseFloat(functionArgs.amount);
+              if (!amount || amount <= 0) {
                 functionResult = {
                   success: false,
-                  error: createResult.error || 'Грешка при създаване на транзакция'
+                  error: 'Моля посочи сума и описание. Например: "добави транзакция 25 € от BILLA" или "добави разход 10 € храна от Кaufland".'
                 };
+              } else {
+                const createResult = await executeAction(userId, {
+                  action: 'create',
+                  amount,
+                  type: functionArgs.type || 'expense',
+                  description: functionArgs.description || null,
+                  products: Array.isArray(functionArgs.products) ? functionArgs.products : (functionArgs.products ? [functionArgs.products] : null),
+                  category: functionArgs.category || null
+                });
+                
+                if (createResult.success) {
+                  functionResult = {
+                    success: true,
+                    message: createResult.message || 'Транзакцията е създадена успешно',
+                    transaction: createResult.transaction
+                  };
+                } else {
+                  functionResult = {
+                    success: false,
+                    error: createResult.error || 'Грешка при създаване на транзакция'
+                  };
+                }
               }
             } catch (error) {
               console.error('Error in create_transaction tool:', error);
@@ -1296,12 +1370,16 @@ const chatWithAI = async (userId, userMessage, apiKey, model, previousAction = n
                 error: 'Грешка при създаване на транзакция: ' + (error.message || 'Неизвестна грешка')
               };
             }
+          } else {
+            functionResult = { error: 'Неразпозната операция. Опитайте "добави транзакция 25 € от BILLA" или "последна транзакция".' };
           }
           
+          if (functionResult == null) {
+            functionResult = { error: 'Вътрешна грешка при обработка на заявката. Опитайте отново.' };
+          }
           toolResults.push({
             tool_call_id: toolCall.id,
             role: 'tool',
-            name: functionName,
             content: JSON.stringify(functionResult)
           });
         }
@@ -1313,11 +1391,11 @@ const chatWithAI = async (userId, userMessage, apiKey, model, previousAction = n
             messages: [
               {
                 role: 'system',
-                content: 'Ти си приятелски финансов съветник. Говориш с потребителя като с приятел - естествено, разговорно, но полезно. Отговори на български език.'
+                content: 'Ти си приятелски финансов съветник. Говориш с потребителя като с приятел - естествено, разговорно, но полезно. При светски съобщения (поздрави, "как си", "мерси" и т.н.) отговори само кратко и естествено, без финансов анализ. Отговори на български език.'
               },
               {
                 role: 'user',
-                content: `Финансови данни:\n${JSON.stringify(financialData)}\n\nВъпрос: "${userMessage}"`
+                content: `Финансови данни:\n${JSON.stringify(financialData)}\n\nВъпрос: "${userMessage}"\n\nАко въпросът е светски (здравей, как си, мерси) – отговори само с 1–2 изречения, без анализ.`
               },
               message,
               ...toolResults
@@ -1409,11 +1487,11 @@ const chatWithAI = async (userId, userMessage, apiKey, model, previousAction = n
               messages: [
                 {
                   role: 'system',
-                  content: 'Ти си финансов съветник AI асистент. Отговаряй СТРОГО само с данни от предоставените транзакции. НИКОГА не измисляй или предполагай данни които не виждаш. Ако не намериш нещо, кажи "Не намерих такава транзакция". КРИТИЧНО: recentTransactions е сортиран по дата DESC (най-новите ПЪРВИ). За "последна/най-нова транзакция" ВИНАГИ вземи recentTransactions[0]. За "най-стара транзакция" вземи последния елемент от масива. Бъди краток и точен. Отговори на български език.'
+                  content: 'Ти си финансов съветник AI асистент. ПРИОРИТЕТ: При светски съобщения (здравей, как си, мерси, благодаря) отговори КРАТКО и естествено (1–2 изречения), БЕЗ анализ или данни. Отговаряй СТРОГО само с данни от предоставените транзакции. НИКОГА не измисляй или предполагай данни които не виждаш. Ако не намериш нещо, кажи "Не намерих такава транзакция". КРИТИЧНО: recentTransactions е сортиран по дата DESC (най-новите ПЪРВИ). За "последна/най-нова транзакция" ВИНАГИ вземи recentTransactions[0]. За "най-стара транзакция" вземи последния елемент от масива. Бъди краток и точен. Отговори на български език.'
                 },
                 {
                   role: 'user',
-                  content: `Финансови данни:\n${JSON.stringify(financialData, null, 2)}\n\nВъпрос на потребителя: "${userMessage}"\n\nКРИТИЧНО ВАЖНИ ПРАВИЛА - СЛЕДВАЙ ГИ СТРОГО:
+                  content: `Финансови данни:\n${JSON.stringify(financialData, null, 2)}\n\nВъпрос на потребителя: "${userMessage}"\n\nПРАВИЛО 0 (ПРИОРИТЕТ): Ако въпросът е светски (здравей, как си, как е, мерси, благодаря, добре) – отговори САМО с 1–2 изречения, естествено. НЕ анализирай, НЕ цитирай данни.\n\nКРИТИЧНО ВАЖНИ ПРАВИЛА - СЛЕДВАЙ ГИ СТРОГО:
 1. НИКОГА НЕ ИЗМИСЛЯЙ ДАННИ. Използвай САМО данните от списъка recentTransactions. Ако не виждаш нещо в данните, кажи "Не намерих такава транзакция" или "Не виждам такава транзакция в данните".
 
 2. КРИТИЧНО ЗА ПОСЛЕДНА ТРАНЗАКЦИЯ: recentTransactions е масив сортиран по дата DESCENDING (DESC) - най-новите са ПЪРВИ. Значи recentTransactions[0] (ПЪРВИЯТ ЕЛЕМЕНТ, ИНДЕКС 0) Е ВИНАГИ НАЙ-НОВАТА/ПОСЛЕДНАТА ТРАНЗАКЦИЯ. Когато питат "последна", "най-нова", "последната транзакция" - ВИНАГИ вземи recentTransactions[0] и кажи точно неговото описание, сума и дата. За "най-стара транзакция" вземи recentTransactions[recentTransactions.length - 1]. НИКОГА не измисляй данни!

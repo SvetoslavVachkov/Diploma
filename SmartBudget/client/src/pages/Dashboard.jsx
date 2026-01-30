@@ -54,80 +54,105 @@ const Dashboard = () => {
   };
 
   if (loading) {
-    return <div style={styles.loading}>Зареждане...</div>;
+    return <div className="loading-screen">Зареждане…</div>;
   }
 
+  const income = summary?.totals?.totalIncome ?? summary?.totals?.total_income ?? 0;
+  const expense = summary?.totals?.totalExpense ?? summary?.totals?.total_expense ?? summary?.totals?.total_spent ?? 0;
+  const balance = summary?.totals?.balance !== undefined ? summary.totals.balance : (income - expense);
+
   return (
-    <div>
-      <h1 style={styles.title}>Начало</h1>
-      <div style={styles.cards}>
-        <div style={styles.card}>
-          <h3 style={styles.cardTitle}>Общо приходи</h3>
-          <p style={styles.cardAmount}>
-            {(summary?.totals?.totalIncome || summary?.totals?.total_income || 0).toFixed(2)} €
-          </p>
+    <div className="page">
+      <h1 className="page-title">Начало</h1>
+      <div className="cards-grid" style={{ marginBottom: '1.5rem' }}>
+        <div className="card">
+          <h3 className="card-title">Общо приходи</h3>
+          <p className="card-value">{Number(income).toFixed(2)} €</p>
         </div>
-        <div style={styles.card}>
-          <h3 style={styles.cardTitle}>Общо разходи</h3>
-          <p style={styles.cardAmount}>
-            {(summary?.totals?.totalExpense || summary?.totals?.total_expense || summary?.totals?.total_spent || 0).toFixed(2)} €
-          </p>
+        <div className="card">
+          <h3 className="card-title">Общо разходи</h3>
+          <p className="card-value text-expense">{Number(expense).toFixed(2)} €</p>
         </div>
-        <div style={styles.card}>
-          <h3 style={styles.cardTitle}>Общ баланс</h3>
-          <p style={styles.cardAmount}>
-            {(() => {
-              const income = summary?.totals?.totalIncome || summary?.totals?.total_income || 0;
-              const expense = summary?.totals?.totalExpense || summary?.totals?.total_expense || summary?.totals?.total_spent || 0;
-              const balance = summary?.totals?.balance !== undefined ? summary.totals.balance : (income - expense);
-              return balance.toFixed(2);
-            })()} €
+        <div className="card">
+          <h3 className="card-title">Общ баланс</h3>
+          <p className="card-value" style={{ color: balance >= 0 ? 'var(--income)' : 'var(--expense)' }}>
+            {Number(balance).toFixed(2)} €
           </p>
         </div>
       </div>
-      <div style={styles.section}>
-        <h2 style={styles.sectionTitle}>AI Съвети за управление на парите</h2>
+      <div className="section">
+        <h2 className="section-title">AI Съвети за управление на парите</h2>
         {adviceLoading ? (
-          <p style={styles.empty}>Зареждане на съвети...</p>
+          <p className="empty-state">Зареждане на съвети…</p>
         ) : advice?.advice?.length > 0 ? (
-          <div style={styles.adviceContainer}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
             {advice.advice.map((tip, index) => (
-              <div key={index} style={styles.adviceItem}>
-                <span style={styles.adviceIcon}>💡</span>
-                <p style={styles.adviceText}>{tip}</p>
+              <div
+                key={index}
+                style={{
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  gap: '0.75rem',
+                  padding: '0.75rem 1rem',
+                  background: 'var(--primary-light)',
+                  borderRadius: 'var(--radius)',
+                  borderLeft: '4px solid var(--primary)'
+                }}
+              >
+                <span style={{ flexShrink: 0 }}>💡</span>
+                <p style={{ margin: 0, fontSize: '0.95rem', lineHeight: 1.5 }}>{tip}</p>
               </div>
             ))}
             {advice.spending_summary && (
-              <div style={styles.summaryBox}>
-                <p style={styles.summaryText}>
-                  Общо разходи: {advice.spending_summary.total_spent?.toFixed(2) || '0.00'} €
+              <div
+                style={{
+                  marginTop: '1rem',
+                  padding: '1rem',
+                  background: 'var(--bg-muted)',
+                  borderRadius: 'var(--radius)',
+                  border: '1px solid var(--border)'
+                }}
+              >
+                <p style={{ margin: '0.25rem 0', fontSize: '0.9rem', color: 'var(--text-muted)' }}>
+                  Общо разходи: {Number(advice.spending_summary.total_spent || 0).toFixed(2)} €
                 </p>
-                <p style={styles.summaryText}>
-                  Средно на ден: {advice.spending_summary.daily_average?.toFixed(2) || '0.00'} €
+                <p style={{ margin: '0.25rem 0', fontSize: '0.9rem', color: 'var(--text-muted)' }}>
+                  Средно на ден: {Number(advice.spending_summary.daily_average || 0).toFixed(2)} €
                 </p>
               </div>
             )}
           </div>
         ) : (
-          <p style={styles.empty}>Няма налични съвети</p>
+          <p className="empty-state">Няма налични съвети</p>
         )}
       </div>
-      <div style={styles.section}>
-        <h2 style={styles.sectionTitle}>Последни транзакции</h2>
-        <div style={styles.transactions}>
+      <div className="section">
+        <h2 className="section-title">Последни транзакции</h2>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
           {summary?.recent?.length > 0 ? (
             summary.recent.map((tx) => (
-              <div key={tx.id} style={styles.transaction}>
+              <div
+                key={tx.id}
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  padding: '0.75rem 1rem',
+                  background: 'var(--bg-muted)',
+                  borderRadius: 'var(--radius)'
+                }}
+              >
                 <div>
-                  <p style={styles.transactionDesc}>{tx.description}</p>
-                  <p style={styles.transactionDate}>
+                  <p style={{ fontWeight: 500, marginBottom: '0.25rem' }}>{tx.description}</p>
+                  <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
                     {new Date(tx.transaction_date).toLocaleDateString('bg-BG')}
                   </p>
                 </div>
                 <p
                   style={{
-                    ...styles.transactionAmount,
-                    color: tx.type === 'income' ? '#10b981' : '#ef4444'
+                    fontWeight: 700,
+                    fontSize: '1rem',
+                    color: tx.type === 'income' ? 'var(--income)' : 'var(--expense)'
                   }}
                 >
                   {tx.type === 'income' ? '+' : '-'}
@@ -136,7 +161,7 @@ const Dashboard = () => {
               </div>
             ))
           ) : (
-            <p style={styles.empty}>Няма транзакции</p>
+            <p className="empty-state">Няма транзакции</p>
           )}
         </div>
       </div>
@@ -144,139 +169,4 @@ const Dashboard = () => {
   );
 };
 
-const styles = {
-  title: {
-    fontSize: '36px',
-    fontWeight: 'bold',
-    color: '#1f2937',
-    marginBottom: '32px',
-    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-    WebkitBackgroundClip: 'text',
-    WebkitTextFillColor: 'transparent',
-    backgroundClip: 'text'
-  },
-  cards: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
-    gap: '24px',
-    marginBottom: '40px'
-  },
-  card: {
-    background: 'linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%)',
-    borderRadius: '20px',
-    padding: '32px',
-    boxShadow: '0 8px 30px rgba(0,0,0,0.12)',
-    border: '1px solid rgba(102, 126, 234, 0.1)',
-    transition: 'all 0.3s ease',
-    position: 'relative',
-    overflow: 'hidden'
-  },
-  cardTitle: {
-    fontSize: '14px',
-    color: '#6b7280',
-    marginBottom: '12px',
-    fontWeight: '600',
-    textTransform: 'uppercase',
-    letterSpacing: '0.5px'
-  },
-  cardAmount: {
-    fontSize: '32px',
-    fontWeight: 'bold',
-    color: '#1f2937',
-    lineHeight: '1.2'
-  },
-  section: {
-    background: 'linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%)',
-    borderRadius: '20px',
-    padding: '32px',
-    boxShadow: '0 8px 30px rgba(0,0,0,0.12)',
-    marginBottom: '32px',
-    border: '1px solid rgba(102, 126, 234, 0.1)'
-  },
-  sectionTitle: {
-    fontSize: '26px',
-    fontWeight: 'bold',
-    color: '#1f2937',
-    marginBottom: '24px',
-    display: 'flex',
-    alignItems: 'center',
-    gap: '12px'
-  },
-  transactions: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '12px'
-  },
-  transaction: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: '16px',
-    background: '#f9fafb',
-    borderRadius: '8px'
-  },
-  transactionDesc: {
-    fontSize: '16px',
-    fontWeight: '500',
-    color: '#333',
-    marginBottom: '4px'
-  },
-  transactionDate: {
-    fontSize: '14px',
-    color: '#666'
-  },
-  transactionAmount: {
-    fontSize: '18px',
-    fontWeight: 'bold'
-  },
-  empty: {
-    textAlign: 'center',
-    color: '#666',
-    padding: '40px'
-  },
-  loading: {
-    textAlign: 'center',
-    color: 'white',
-    fontSize: '18px',
-    padding: '40px'
-  },
-  adviceContainer: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '16px'
-  },
-  adviceItem: {
-    display: 'flex',
-    alignItems: 'flex-start',
-    gap: '12px',
-    padding: '16px',
-    background: '#f0f9ff',
-    borderRadius: '8px',
-    borderLeft: '4px solid #3b82f6'
-  },
-  adviceIcon: {
-    fontSize: '20px',
-    flexShrink: 0
-  },
-  adviceText: {
-    fontSize: '16px',
-    color: '#333',
-    lineHeight: '1.6',
-    margin: 0
-  },
-  summaryBox: {
-    marginTop: '20px',
-    padding: '16px',
-    background: '#f9fafb',
-    borderRadius: '8px',
-    border: '1px solid #e5e7eb'
-  },
-  summaryText: {
-    fontSize: '14px',
-    color: '#666',
-    margin: '4px 0'
-  }
-};
-
 export default Dashboard;
-
