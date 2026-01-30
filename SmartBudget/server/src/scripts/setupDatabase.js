@@ -15,13 +15,13 @@ const setupDatabase = async () => {
 
     console.log('Connecting to MySQL server...');
     const connection = await mysql.createConnection(dbConfig);
-    console.log('✓ Connected to MySQL server\n');
+    console.log('Connected to MySQL server\n');
 
     const dbName = process.env.DB_NAME || 'smartbudget';
     
     console.log(`Creating database '${dbName}' if it doesn't exist...`);
     await connection.query(`CREATE DATABASE IF NOT EXISTS \`${dbName}\``);
-    console.log(`✓ Database '${dbName}' ready\n`);
+    console.log(`Database '${dbName}' ready\n`);
 
     await connection.query(`USE \`${dbName}\``);
 

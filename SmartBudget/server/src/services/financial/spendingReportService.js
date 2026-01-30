@@ -65,7 +65,7 @@ const generateSpendingReport = async (userId, dateFrom, dateTo, searchQuery, ski
       as: 'category',
       attributes: ['id', 'name', 'type', 'icon', 'color'],
       required: false
-    }];
+    }]; 
 
     if (searchQuery) {
       where[Op.or] = [
