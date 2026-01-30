@@ -151,7 +151,8 @@ const parseTBIBankStatement = (text) => {
     
     if (!hasDt && !hasKt) continue;
     
-    const dateStr = dateMatch[1];
+    const allDates = line.match(/\d{2}\.\d{2}\.\d{4}/g) || [];
+    const dateStr = allDates.length >= 2 ? allDates[1] : (dateMatch[1] || allDates[0]);
     let isIncome = hasKt;
     
     let description = '';
@@ -262,7 +263,9 @@ const parseTBIBankStatement = (text) => {
         }
       }
       
-      description = descParts.join(' ').trim();
+      description = descParts.join(' ')
+        .replace(/(Превод)([А-ЯA-Z])/g, '$1 $2')
+        .trim();
     } else {
       const parts = line.split(/\s{2,}|\t/).filter(p => p.trim().length > 0);
       let descParts = [];
@@ -326,11 +329,191 @@ const parseTBIBankStatement = (text) => {
   return transactions;
 };
 
+const normalizeFiBankText = (text) => {
+  if (!text) return '';
+  return String(text)
+    .replace(/\r/g, '\n')
+    .replace(/(\d{2}\/\d{2})\s*\/(\d{4})/g, '$1/$2')
+    .replace(/(\d{2}\/\d{2}\/\d{4})(?=\d{2}\/\d{2}\/\d{4})/g, '$1 ')
+    .replace(/(\d{2}\/\d{2}\/\d{4})(?=\d)/g, '$1 ');
+};
+
+const isFiBankDateToken = (token) => /^\d{2}\/\d{2}\/\d{4}$/.test(token);
+
+const isFiBankAmountToken = (token) => {
+  return /^(?:\d{1,3}(?:[.,]\d{3})*|\d+)[.,]\d{2}$/.test(token);
+};
+
+const parseFiBankAmount = (token) => {
+  if (!token) return 0;
+  const cleaned = String(token).replace(/\s+/g, '');
+  if (cleaned.includes(',') && cleaned.includes('.')) {
+    return parseFloat(cleaned.replace(/,/g, ''));
+  }
+  return parseFloat(cleaned.replace(',', '.'));
+};
+
+const isFiBankCurrencyToken = (token) => {
+  const upper = String(token || '').toUpperCase();
+  return upper === 'BGN' || upper === 'EUR';
+};
+
+const formatFiBankDescription = (tokens) => {
+  if (!tokens || tokens.length === 0) return '';
+
+  const stopWords = new Set([
+    'получен', 'превод', 'плащане', 'отмяна', 'плащане/отмяна',
+    'такса', 'теглене', 'на', 'пари', 'atm', 'pos',
+    'вътрешнобанков', 'вътрешно', 'превод', 'пояснения',
+    'вид', 'плащане', 'получател', 'наредител'
+  ]);
+
+  const filtered = tokens.filter((token) => {
+    const lower = String(token).toLowerCase();
+    if (isFiBankDateToken(token) || isFiBankCurrencyToken(token) || isFiBankAmountToken(token)) {
+      return false;
+    }
+    if (/^[\/-]+$/.test(token)) return false;
+    if (/\*/.test(token)) return false;
+    if (/^\d{4,}$/.test(token)) return false;
+    if (/^[A-Z0-9]{6,}$/.test(token) && /\d/.test(token)) return false;
+    if (/^BG\d{2}[A-Z]{4}\d{8,}$/i.test(token)) return false;
+    if (stopWords.has(lower) || lower === 'пос') return false;
+    return true;
+  });
+
+  let description = cleanDescription(filtered.join(' '));
+  if (!description || description.length < 2) {
+    description = cleanDescription(tokens.filter((t) => !isFiBankCurrencyToken(t)).join(' '));
+  }
+
+  return description;
+};
+
+const parseFiBankStatement = (text) => {
+  const normalized = normalizeFiBankText(text);
+  const tokens = normalized.split(/\s+/).filter((t) => t.length > 0);
+  const transactions = [];
+  const seenTransactions = new Set();
+
+  const defaultRate = 1.95583;
+  let exchangeRate = null;
+
+  const updateRate = (bgn, eur) => {
+    if (bgn > 0 && eur > 0) {
+      const rate = bgn / eur;
+      if (rate > 0.5 && rate < 5) {
+        exchangeRate = rate;
+      }
+    }
+  };
+
+  const convertBGNToEUR = (bgnAmount) => {
+    const rate = exchangeRate || defaultRate;
+    return bgnAmount / rate;
+  };
+
+  let i = 0;
+  while (i < tokens.length - 1) {
+    if (isFiBankDateToken(tokens[i]) && isFiBankDateToken(tokens[i + 1])) {
+      const accountingDate = tokens[i];
+      i += 2;
+
+      const pairs = [];
+      let guard = 0;
+      while (i < tokens.length && pairs.length < 4 && guard < 200) {
+        const amountToken = tokens[i];
+        const currencyToken = tokens[i + 1];
+        if (isFiBankAmountToken(amountToken) && isFiBankCurrencyToken(currencyToken)) {
+          pairs.push({
+            amount: parseFiBankAmount(amountToken),
+            currency: String(currencyToken).toUpperCase()
+          });
+          i += 2;
+          guard++;
+          continue;
+        }
+        if (isFiBankDateToken(tokens[i]) && isFiBankDateToken(tokens[i + 1])) {
+          break;
+        }
+        i++;
+        guard++;
+      }
+
+      if (pairs.length < 4) {
+        continue;
+      }
+
+      const debitPairs = pairs.slice(0, 2);
+      const creditPairs = pairs.slice(2, 4);
+
+      const debitBgn = debitPairs.find((p) => p.currency === 'BGN')?.amount || 0;
+      const debitEur = debitPairs.find((p) => p.currency === 'EUR')?.amount || 0;
+      const creditBgn = creditPairs.find((p) => p.currency === 'BGN')?.amount || 0;
+      const creditEur = creditPairs.find((p) => p.currency === 'EUR')?.amount || 0;
+
+      updateRate(debitBgn, debitEur);
+      updateRate(creditBgn, creditEur);
+
+      let amount = null;
+      let type = null;
+
+      if (creditEur > 0.001) {
+        amount = creditEur;
+        type = 'income';
+      } else if (creditBgn > 0.001) {
+        amount = convertBGNToEUR(creditBgn);
+        type = 'income';
+      } else if (debitEur > 0.001) {
+        amount = debitEur;
+        type = 'expense';
+      } else if (debitBgn > 0.001) {
+        amount = convertBGNToEUR(debitBgn);
+        type = 'expense';
+      }
+
+      const descStart = i;
+      while (i < tokens.length && !(isFiBankDateToken(tokens[i]) && isFiBankDateToken(tokens[i + 1]))) {
+        i++;
+      }
+      const descTokens = tokens.slice(descStart, i);
+      let description = formatFiBankDescription(descTokens);
+
+      if (!description || description.length < 2) {
+        description = type === 'income' ? 'Превод' : 'Плащане';
+      }
+
+      if (amount && amount > 0) {
+        const [dd, mm, yyyy] = accountingDate.split('/');
+        const formattedDate = `${yyyy}-${mm}-${dd}`;
+        const transactionKey = `${formattedDate}_${amount.toFixed(2)}_${description.substring(0, 30)}`;
+        if (!seenTransactions.has(transactionKey)) {
+          transactions.push({
+            date: formattedDate,
+            description,
+            amount,
+            type
+          });
+          seenTransactions.add(transactionKey);
+        }
+      }
+      continue;
+    }
+    i++;
+  }
+
+  return transactions;
+};
+
 const parseBankStatementText = (text) => {
   if (!text || text.length < 10) {
     return [];
   }
   
+  if (text.match(/Първа инвестиционна банка|ОТЧЕТ ПО СМЕТКА|BG\d{2}FINV|FINV\d{4}/i)) {
+    return parseFiBankStatement(text);
+  }
+
   if (text.match(/tbi bank|Извлечение по сметка/i)) {
     return parseTBIBankStatement(text);
   }
@@ -413,10 +596,12 @@ const parseBankStatementText = (text) => {
       }
     }
     
-    if (line.match(/Report lost|Get help|Scan the QR|Revolut Bank.*authorized.*deposit|©\s+\d{4}|End of statement/i)) {
-      if (transactions.length > 0 && inTransactionTable) {
+    if (line.match(/End of statement/i)) {
+      if (transactions.length > 0) {
         break;
       }
+    }
+    if (line.match(/Report lost|Get help|Scan the QR|Revolut Bank.*authorized.*deposit|©\s+\d{4}/i)) {
       if (!inTransactionTable) {
         continue;
       }
@@ -498,11 +683,8 @@ const parseBankStatementText = (text) => {
     while (nextLineIndex < lines.length && nextLineIndex < i + 15 && linesToSkip < 12) {
       const nextLine = lines[nextLineIndex];
       const nextDateMatch = nextLine.match(datePattern);
-      
       if (nextDateMatch) {
-        if (!foundEuroInNextLines) {
-          break;
-        }
+        break;
       }
       
       if (nextLine.match(/Report lost|Get help|Scan the QR|Revolut Bank.*authorized.*deposit|©\s+\d{4}|Balance summary|^Date.*Description|^Page\s+\d+/i)) {
@@ -624,10 +806,13 @@ const parseBankStatementText = (text) => {
       const moneyOut = tableMatch[3];
       const moneyIn = tableMatch[4];
       const balance = tableMatch[5];
-      
+      const firstAmount = tableMatch[3] ? parseFloat(String(tableMatch[3]).replace(/\s+/g, '').replace(',', '.')) : null;
+      const secondAmount = tableMatch[4] ? parseFloat(String(tableMatch[4]).replace(/\s+/g, '').replace(',', '.')) : null;
+
       const isLikelyIncome = hasMoneyInKeyword || lineLower.includes('transfer from') || lineLower.includes('exchanged to') || lineLower.includes('exchanged eur') || lineLower.includes('deposit') || lineLower.includes('apple pay') || lineLower.includes('refund') || lineLower.includes('revolut bank') || (lineLower.includes('revolut user') && lineLower.includes('from'));
       const isLikelyExpense = hasMoneyOutKeyword || lineLower.includes('transfer to') || lineLower.includes('withdrawal') || lineLower.includes('payment') || lineLower.includes('cash withdrawal');
-      
+      const singleMovement = (isLikelyIncome && !isLikelyExpense) || (isLikelyExpense && !isLikelyIncome);
+
       if (moneyIn && moneyIn !== '0.00' && moneyIn !== '' && (!moneyOut || moneyOut === '0.00' || moneyOut === '')) {
         transactionAmount = parseFloat(moneyIn.replace(/\s+/g, '').replace(',', '.'));
         isIncome = true;
@@ -635,7 +820,10 @@ const parseBankStatementText = (text) => {
         transactionAmount = parseFloat(moneyOut.replace(/\s+/g, '').replace(',', '.'));
         isIncome = false;
       } else if (moneyIn && moneyIn !== '0.00' && moneyIn !== '' && moneyOut && moneyOut !== '0.00' && moneyOut !== '') {
-        if (isLikelyIncome && !isLikelyExpense) {
+        if (singleMovement && firstAmount != null) {
+          transactionAmount = firstAmount;
+          isIncome = isLikelyIncome;
+        } else if (isLikelyIncome && !isLikelyExpense) {
           transactionAmount = parseFloat(moneyIn.replace(/\s+/g, '').replace(',', '.'));
           isIncome = true;
         } else if (isLikelyExpense && !isLikelyIncome) {
@@ -645,6 +833,9 @@ const parseBankStatementText = (text) => {
           transactionAmount = parseFloat(moneyOut.replace(/\s+/g, '').replace(',', '.'));
           isIncome = false;
         }
+      } else if (singleMovement && firstAmount != null && secondAmount != null) {
+        transactionAmount = firstAmount;
+        isIncome = isLikelyIncome;
       } else if (moneyIn && moneyIn !== '0.00' && moneyIn !== '') {
         transactionAmount = parseFloat(moneyIn.replace(/\s+/g, '').replace(',', '.'));
         isIncome = true;
@@ -722,22 +913,18 @@ const parseBankStatementText = (text) => {
           isIncome = false;
         }
       } else if (euroAmounts.length >= 2) {
-        if (hasMoneyInKeyword && !hasMoneyOutKeyword) {
-          transactionAmount = euroAmounts[euroAmounts.length - 1];
+        const singleMovementAlt = (hasMoneyInKeyword && !hasMoneyOutKeyword) || (hasMoneyOutKeyword && !hasMoneyInKeyword);
+        if (singleMovementAlt) {
+          transactionAmount = euroAmounts[0];
+          isIncome = hasMoneyInKeyword && !hasMoneyOutKeyword;
+        } else if (hasMoneyInKeyword && !hasMoneyOutKeyword) {
+          transactionAmount = euroAmounts[0];
           isIncome = true;
         } else if (hasMoneyOutKeyword && !hasMoneyInKeyword) {
           transactionAmount = euroAmounts[0];
           isIncome = false;
         } else if (lineLower.includes('transfer from') || lineLower.includes('exchanged to') || lineLower.includes('exchanged eur') || lineLower.includes('deposit') || lineLower.includes('apple pay') || lineLower.includes('refund') || lineLower.includes('revolut bank') || (lineLower.includes('revolut user') && lineLower.includes('from'))) {
-          if (euroAmounts.length >= 2) {
-            if (euroAmounts[0] < 0.01 || (euroAmounts[1] > euroAmounts[0] * 1.5 && euroAmounts[1] > 5)) {
-              transactionAmount = euroAmounts[1];
-            } else {
-              transactionAmount = euroAmounts[1];
-            }
-          } else {
-            transactionAmount = euroAmounts[euroAmounts.length - 1];
-          }
+          transactionAmount = euroAmounts[0];
           isIncome = true;
         } else if (lineLower.includes('transfer to') && !lineLower.includes('transfer from')) {
           transactionAmount = euroAmounts[0];
@@ -821,6 +1008,15 @@ const parseBankStatementText = (text) => {
       }
     }
     
+    const descLowerCheck = cleanDesc.toLowerCase().replace(/\s+/g, ' ').trim();
+    const isOnlyFeeOrRate = /^fee[\s:]*/i.test(descLowerCheck) || /^revolut\s+rate/i.test(descLowerCheck) || /^ecb\s+rate/i.test(descLowerCheck) || descLowerCheck.length <= 4;
+    if (isOnlyFeeOrRate) {
+      continue;
+    }
+    if (Math.abs(finalAmount - 1) < 0.01 && combinedLine.match(/€\s*1[.,]00\s*=\s*[\d.,]+\s*(?:BGN|USD)|rate.*1[.,]00\s*=/i)) {
+      continue;
+    }
+
     const transactionKey = `${dateStr}_${finalAmount.toFixed(2)}_${cleanDesc}`;
     if (!seenTransactions.has(transactionKey)) {
       transactions.push({
@@ -832,10 +1028,14 @@ const parseBankStatementText = (text) => {
       seenTransactions.add(transactionKey);
     }
   }
-  
+
   const fallbackProcessed = new Set();
+  if (!isEURStatement) {
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
+    if (line.match(/^Fee:\s*[€$£]?\s*[\d.,]+/i) || line.match(/^Revolut Rate\s*/i)) {
+      continue;
+    }
     const dateMatch = line.match(datePattern);
     if (dateMatch) {
       const fallbackKey = `${i}_${line.substring(0, 50)}`;
@@ -899,10 +1099,14 @@ const parseBankStatementText = (text) => {
         const parsedDate = parseRevolutDate(dateStr);
         const lineLowerFallback = combinedLineForFallback.toLowerCase();
         const isIncome = moneyInPattern.test(combinedLineForFallback) || lineLowerFallback.includes('transfer from') || lineLowerFallback.includes('exchanged to') || lineLowerFallback.includes('exchanged eur') || lineLowerFallback.includes('deposit') || lineLowerFallback.includes('apple pay') || lineLowerFallback.includes('refund') || lineLowerFallback.includes('revolut bank') || (lineLowerFallback.includes('revolut user') && lineLowerFallback.includes('from'));
-        
+        const isExpense = moneyOutPattern.test(combinedLineForFallback) || lineLowerFallback.includes('transfer to') || lineLowerFallback.includes('withdrawal') || lineLowerFallback.includes('payment') || lineLowerFallback.includes('cash withdrawal');
+        const singleMovementFallback = (isIncome && !isExpense) || (isExpense && !isIncome);
+
         let amount;
-        if (euroMatches.length >= 2 && isIncome) {
-          amount = euroMatches[1] || euroMatches[0];
+        if (singleMovementFallback && euroMatches.length >= 2) {
+          amount = euroMatches[0];
+        } else if (euroMatches.length >= 2 && isIncome && !isExpense) {
+          amount = euroMatches[0];
         } else if (euroMatches.length >= 2 && !isIncome) {
           amount = euroMatches[0];
         } else {
@@ -942,6 +1146,7 @@ const parseBankStatementText = (text) => {
       }
     }
   }
+  }
   
   return transactions;
 };
@@ -968,75 +1173,119 @@ const importCSVTransactions = async (userId, filePath, options = {}) => {
     let pdfText = null;
     
     if (fileExt === '.pdf') {
-      try {
-        pdfText = await extractTextFromPDF(filePath);
-        const isTBIStatement = !!pdfText.match(/tbi bank|Извлечение по сметка/i);
+        try {
+          pdfText = await extractTextFromPDF(filePath);
+        const isTBIStatement = !!pdfText.match(/tbi bank|Извлечение по сметка|Дата осч\.\s*Вальор/i);
         const isRevolutStatement = !!pdfText.match(/Revolut Bank|EUR Statement|Account transactions|Money out|Money in/i);
 
-        const aiKey = process.env.HF_STMT_API_KEY || process.env.HF_TXN_API_KEY;
-        const aiModel = process.env.HF_STMT_MODEL;
-
-        if (!aiKey || !aiModel) {
-          return {
-            success: false,
-            error: 'AI PDF import is enabled but not configured. Please set HF_STMT_MODEL and HF_STMT_API_KEY (or HF_TXN_API_KEY).'
-          };
-        }
-
-        let aiError = null;
         let aiParsed = [];
         let fallbackParsed = [];
-        
-        try {
-          aiParsed = await parseStatementWithAI(pdfText, { apiKey: aiKey, model: aiModel });
-        } catch (e) {
-          aiError = e;
-        }
-        
+
         try {
           fallbackParsed = parseBankStatementText(pdfText);
         } catch (e) {
         }
-        
-        const seenKeys = new Set();
-        parsedTransactions = [];
-        
-        for (const tx of aiParsed) {
-          const key = `${tx.date}_${tx.amount.toFixed(2)}_${tx.description.substring(0, 30)}`;
-          if (!seenKeys.has(key)) {
-            parsedTransactions.push(tx);
-            seenKeys.add(key);
-    }
-  }
-  
-        for (const tx of fallbackParsed) {
-          const key = `${tx.date}_${tx.amount.toFixed(2)}_${tx.description.substring(0, 30)}`;
-          if (!seenKeys.has(key)) {
-            parsedTransactions.push(tx);
-            seenKeys.add(key);
-          }
-  }
-  
-        if (parsedTransactions.length === 0 && aiError) {
-          return {
-            success: false,
-            error: `AI PDF parsing failed (${aiError.message}). Fallback parsing also found no transactions.`
+
+        if ((isTBIStatement || isRevolutStatement) && fallbackParsed.length > 0) {
+          const isFeeOrRateOnly = (tx) => {
+            const d = String(tx.description || '').toLowerCase().replace(/\s+/g, ' ').trim();
+            return /^fee[\s:]*/i.test(d) || /^revolut\s+rate/i.test(d) || /^ecb\s+rate/i.test(d) || d.length <= 4;
           };
-  }
-  
+          const dropRefundDuplicate = (list) => {
+            const descNorm = (tx) => String(tx.description || '').toLowerCase().replace(/\s+/g, ' ').replace(/\s*=\s*bgn\s*$/i, '').trim().substring(0, 20);
+            return list.filter((tx) => {
+              if (tx.type !== 'income') return true;
+              const date = String(tx.date || '').trim();
+              const d = descNorm(tx);
+              const sameDateDescExpense = list.some(
+                (other) => other !== tx && String(other.date || '').trim() === date && descNorm(other) === d && other.type === 'expense' && Math.abs(other.amount - tx.amount) < 0.02
+              );
+              return !sameDateDescExpense;
+            });
+          };
+          parsedTransactions = dropRefundDuplicate(fallbackParsed.filter(tx => !isFeeOrRateOnly(tx)));
+        } else {
+          const aiKey = process.env.HF_STMT_API_KEY || process.env.HF_TXN_API_KEY;
+          const aiModel = process.env.HF_STMT_MODEL;
+
+          if (!aiKey && !process.env.GROQ_API_KEY) {
+            if (parsedTransactions.length === 0 && fallbackParsed.length === 0) {
+              return {
+                success: false,
+                error: 'No transactions found in PDF. For TBI Bank use fallback; for other PDFs set HF or GROQ API keys.'
+              };
+            }
+          }
+
+          if ((aiKey && aiModel) || process.env.GROQ_API_KEY) {
+            try {
+              aiParsed = await parseStatementWithAI(pdfText, {
+                apiKey: aiKey,
+                model: aiModel,
+                groqApiKey: process.env.GROQ_API_KEY,
+                groqModel: process.env.GROQ_MODEL
+              });
+            } catch (e) {
+            }
+          }
+
+          const seenKeys = new Set();
+          parsedTransactions = [];
+          const normalizeDedupeKey = (tx) => {
+            const date = String(tx.date || '').trim();
+            const amount = Number(tx.amount);
+            const amtStr = Number.isFinite(amount) ? amount.toFixed(2) : '0.00';
+            const desc = String(tx.description || '').toLowerCase().replace(/\s+/g, ' ').trim().substring(0, 25);
+            return `${date}_${amtStr}_${desc}`;
+          };
+          const isFeeOrRateOnly = (tx) => {
+            const d = String(tx.description || '').toLowerCase().replace(/\s+/g, ' ').trim();
+            return /^fee[\s:]*/i.test(d) || /^revolut\s+rate/i.test(d) || /^ecb\s+rate/i.test(d) || d.length <= 4;
+          };
+
+          for (const tx of fallbackParsed) {
+            if (isFeeOrRateOnly(tx)) continue;
+            const key = normalizeDedupeKey(tx);
+            if (!seenKeys.has(key)) {
+              parsedTransactions.push(tx);
+              seenKeys.add(key);
+            }
+          }
+          for (const tx of aiParsed) {
+            if (isFeeOrRateOnly(tx)) continue;
+            const key = normalizeDedupeKey(tx);
+            if (!seenKeys.has(key)) {
+              parsedTransactions.push(tx);
+              seenKeys.add(key);
+            }
+          }
+
+          const dropRefundDuplicate = (list) => {
+            const descNorm = (tx) => String(tx.description || '').toLowerCase().replace(/\s+/g, ' ').replace(/\s*=\s*bgn\s*$/i, '').trim().substring(0, 20);
+            return list.filter((tx) => {
+              if (tx.type !== 'income') return true;
+              const date = String(tx.date || '').trim();
+              const d = descNorm(tx);
+              const sameDateDescExpense = list.some(
+                (other) => other !== tx && String(other.date || '').trim() === date && descNorm(other) === d && other.type === 'expense' && Math.abs(other.amount - tx.amount) < 0.02
+              );
+              return !sameDateDescExpense;
+            });
+          };
+          parsedTransactions = dropRefundDuplicate(parsedTransactions);
+        }
+
         if (parsedTransactions.length === 0) {
           return {
             success: false,
-            error: aiError
-              ? `AI PDF parsing failed (${aiError.message}). Try a different HF_STMT_MODEL (some models return 410 on the public endpoint).`
-              : 'No transactions found in PDF. The PDF might be in an unsupported format or contain no readable transaction data.'
+            error: 'No transactions found in PDF. The PDF might be in an unsupported format or contain no readable transaction data.'
           };
         }
         
         const balanceSummaryMatch = isRevolutStatement
           ? pdfText.match(/Money out.*?€\s*([\d.,]+).*?Money in.*?€\s*([\d.,]+)/is)
           : null;
-        if (balanceSummaryMatch) {
+        if (balanceSummaryMatch && !isRevolutStatement) {
           const totalOut = parseFloat(balanceSummaryMatch[1].replace(/\s+/g, '').replace(',', '.'));
           const totalIn = parseFloat(balanceSummaryMatch[2].replace(/\s+/g, '').replace(',', '.'));
           if (parsedTransactions.length > 0) {
@@ -1044,11 +1293,10 @@ const importCSVTransactions = async (userId, filePath, options = {}) => {
             const avgTransaction = totalAmount / parsedTransactions.length;
             if (avgTransaction > 0) {
               expectedTotal = Math.round((totalOut + totalIn) / avgTransaction);
-  }
+            }
           }
         }
-        
-        if (isTBIStatement) {
+        if (isTBIStatement || isRevolutStatement) {
           expectedTotal = null;
         }
         

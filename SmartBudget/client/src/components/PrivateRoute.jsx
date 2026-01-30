@@ -7,15 +7,8 @@ const PrivateRoute = ({ children }) => {
 
   if (loading) {
     return (
-      <div style={{
-        display: 'flex',
-        justifyContent: 'center',
-        alignItems: 'center',
-        height: '100vh',
-        color: 'white',
-        fontSize: '18px'
-      }}>
-        Loading...
+      <div className="loading-screen">
+        Зареждане…
       </div>
     );
   }
@@ -24,4 +17,3 @@ const PrivateRoute = ({ children }) => {
 };
 
 export default PrivateRoute;
-

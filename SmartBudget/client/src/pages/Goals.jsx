@@ -93,83 +93,94 @@ const Goals = () => {
   };
 
   if (loading) {
-    return <div style={styles.loading}>Зареждане...</div>;
+    return <div className="loading-screen">Зареждане…</div>;
   }
 
   return (
-    <div>
-      <div style={styles.header}>
-        <h1 style={styles.title}>Финансови цели</h1>
-        <button onClick={() => setShowModal(true)} style={styles.addButton}>
+    <div className="page">
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
+        <h1 className="page-title" style={{ marginBottom: 0 }}>Финансови цели</h1>
+        <button type="button" onClick={() => setShowModal(true)} className="btn btn-primary">
           + Нова цел
         </button>
       </div>
 
       {summary && (
-        <div style={styles.summaryCards}>
-          <div style={styles.summaryCard}>
-            <h3 style={styles.summaryTitle}>Общо цели</h3>
-            <p style={styles.summaryValue}>{summary.total_goals}</p>
+        <div className="cards-grid" style={{ marginBottom: '1.5rem' }}>
+          <div className="card">
+            <h3 className="card-title">Общо цели</h3>
+            <p className="card-value">{summary.total_goals}</p>
           </div>
-          <div style={styles.summaryCard}>
-            <h3 style={styles.summaryTitle}>Активни</h3>
-            <p style={styles.summaryValue}>{summary.active_goals}</p>
+          <div className="card">
+            <h3 className="card-title">Активни</h3>
+            <p className="card-value">{summary.active_goals}</p>
           </div>
-          <div style={styles.summaryCard}>
-            <h3 style={styles.summaryTitle}>Постигнати</h3>
-            <p style={styles.summaryValue}>{summary.achieved_goals}</p>
+          <div className="card">
+            <h3 className="card-title">Постигнати</h3>
+            <p className="card-value">{summary.achieved_goals}</p>
           </div>
-          <div style={styles.summaryCard}>
-            <h3 style={styles.summaryTitle}>Общ прогрес</h3>
-            <p style={styles.summaryValue}>{summary.total_progress.toFixed(1)}%</p>
+          <div className="card">
+            <h3 className="card-title">Общ прогрес</h3>
+            <p className="card-value">{Number(summary.total_progress).toFixed(1)}%</p>
           </div>
         </div>
       )}
 
-      {(adviceLoading || (advice && advice.advice && advice.advice.length > 0)) && (
-        <div style={styles.adviceSection}>
-          <h2 style={styles.adviceTitle}>AI Съвети за постигане на цели</h2>
+      {(adviceLoading || (advice?.advice?.length > 0)) && (
+        <div className="section" style={{ marginBottom: '1.5rem' }}>
+          <h2 className="section-title">AI Съвети за постигане на цели</h2>
           {adviceLoading ? (
-            <p style={styles.empty}>Зареждане на съвети...</p>
-          ) : advice?.advice && advice.advice.length > 0 ? (
-            <div style={styles.adviceContainer}>
+            <p className="empty-state">Зареждане на съвети…</p>
+          ) : advice?.advice?.length > 0 ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
               {advice.advice.map((tip, index) => (
-                <div key={index} style={styles.adviceItem}>
-                  <span style={styles.adviceIcon}>💡</span>
-                  <p style={styles.adviceText}>{tip}</p>
+                <div
+                  key={index}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                    gap: '0.75rem',
+                    padding: '0.75rem 1rem',
+                    background: 'var(--primary-light)',
+                    borderRadius: 'var(--radius)',
+                    borderLeft: '4px solid var(--primary)'
+                  }}
+                >
+                  <span style={{ flexShrink: 0 }}>💡</span>
+                  <p style={{ margin: 0, fontSize: '0.95rem', lineHeight: 1.5 }}>{tip}</p>
                 </div>
               ))}
             </div>
           ) : (
-            <p style={styles.empty}>Няма налични съвети</p>
+            <p className="empty-state">Няма налични съвети</p>
           )}
         </div>
       )}
 
       {showModal && (
-        <div style={styles.modalOverlay} onClick={() => setShowModal(false)}>
-          <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
-            <h2 style={styles.modalTitle}>Нова цел</h2>
-            <form onSubmit={handleSubmit} style={styles.form}>
+        <div className="modal-overlay" onClick={() => setShowModal(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h2 className="modal-title">Нова цел</h2>
+            <form onSubmit={handleSubmit} className="form-row">
               <input
                 type="text"
+                className="input"
                 placeholder="Заглавие"
                 value={formData.title}
                 onChange={(e) => setFormData({ ...formData, title: e.target.value })}
                 required
-                style={styles.input}
               />
               <textarea
+                className="textarea"
                 placeholder="Описание"
                 value={formData.description}
                 onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                style={styles.textarea}
-                rows="3"
+                rows={3}
               />
               <select
+                className="select"
                 value={formData.goal_type}
                 onChange={(e) => setFormData({ ...formData, goal_type: e.target.value })}
-                style={styles.select}
               >
                 <option value="savings">Спестяване</option>
                 <option value="debt_payoff">Изплащане на дълг</option>
@@ -179,24 +190,24 @@ const Goals = () => {
               <input
                 type="number"
                 step="0.01"
+                className="input"
                 placeholder="Целева сума"
                 value={formData.target_amount}
                 onChange={(e) => setFormData({ ...formData, target_amount: e.target.value })}
                 required
-                style={styles.input}
               />
               <input
                 type="date"
+                className="input"
                 placeholder="Целева дата"
                 value={formData.target_date}
                 onChange={(e) => setFormData({ ...formData, target_date: e.target.value })}
-                style={styles.input}
               />
-              <div style={styles.modalActions}>
-                <button type="button" onClick={() => setShowModal(false)} style={styles.cancelButton}>
+              <div className="form-actions">
+                <button type="button" onClick={() => setShowModal(false)} className="btn btn-ghost">
                   Отказ
                 </button>
-                <button type="submit" style={styles.submitButton}>
+                <button type="submit" className="btn btn-primary">
                   Запази
                 </button>
               </div>
@@ -205,379 +216,113 @@ const Goals = () => {
         </div>
       )}
 
-      <div style={styles.goalsGrid}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '1rem' }}>
         {goals.length > 0 ? (
           goals.map((goal) => (
-            <div key={goal.id} style={styles.goalCard}>
-              <div style={styles.goalHeader}>
-                <h3 style={styles.goalTitle}>{goal.title}</h3>
+            <div key={goal.id} className="card">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.75rem' }}>
+                <h3 style={{ fontSize: '1.1rem', fontWeight: 600, flex: 1 }}>{goal.title}</h3>
                 <button
+                  type="button"
                   onClick={() => handleDelete(goal.id)}
-                  style={styles.deleteButton}
+                  className="btn btn-ghost"
+                  style={{ padding: '0.25rem', minWidth: 'auto', fontSize: '1.25rem', color: 'var(--text-muted)' }}
+                  aria-label="Изтрий"
                 >
                   ×
                 </button>
               </div>
               {goal.description && (
-                <p style={styles.goalDescription}>{goal.description}</p>
+                <p style={{ color: 'var(--text-muted)', marginBottom: '1rem', fontSize: '0.9rem' }}>{goal.description}</p>
               )}
-              <div style={styles.progressContainer}>
-                <div style={styles.progressBar}>
+              <div style={{ marginBottom: '1rem' }}>
+                <div
+                  style={{
+                    height: 6,
+                    background: 'var(--bg-muted)',
+                    borderRadius: 3,
+                    overflow: 'hidden',
+                    marginBottom: '0.5rem'
+                  }}
+                >
                   <div
                     style={{
-                      ...styles.progressFill,
+                      height: '100%',
                       width: `${Math.min(100, goal.progress)}%`,
-                      background: goal.is_achieved
-                        ? 'linear-gradient(135deg, #10b981 0%, #059669 100%)'
-                        : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
+                      background: goal.is_achieved ? 'var(--income)' : 'var(--primary)',
+                      borderRadius: 3,
+                      transition: 'width 0.2s'
                     }}
                   />
                 </div>
-                <div style={styles.progressInfo}>
-                  <span style={styles.progressText}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                  <span>
                     {parseFloat(goal.current_amount).toFixed(2)} / {parseFloat(goal.target_amount).toFixed(2)} €
                   </span>
-                  <span style={styles.progressPercent}>{goal.progress.toFixed(1)}%</span>
+                  <span style={{ fontWeight: 600, color: 'var(--primary)' }}>{Number(goal.progress).toFixed(1)}%</span>
                 </div>
               </div>
-              <div style={styles.goalMeta}>
-                <span style={styles.goalType}>{goal.goal_type}</span>
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '1rem' }}>
+                <span style={{ textTransform: 'capitalize' }}>{goal.goal_type}</span>
                 {goal.target_date && (
-                  <span style={styles.goalDate}>
+                  <span style={{ display: 'block', marginTop: '0.25rem' }}>
                     До: {new Date(goal.target_date).toLocaleDateString('bg-BG')}
-                    {goal.days_remaining !== null && (
-                      <span style={styles.daysRemaining}>
-                        ({goal.days_remaining > 0 ? `${goal.days_remaining} дни` : 'Изтекла'})
-                      </span>
+                    {goal.days_remaining != null && (
+                      <span> ({goal.days_remaining > 0 ? `${goal.days_remaining} дни` : 'Изтекла'})</span>
                     )}
                   </span>
                 )}
               </div>
               {!goal.is_achieved && (
-                <div style={styles.addAmountContainer}>
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
                   <input
                     type="number"
                     step="0.01"
+                    className="input"
                     placeholder="Добави сума"
                     id={`amount-${goal.id}`}
-                    style={styles.amountInput}
+                    style={{ flex: 1 }}
                   />
                   <button
+                    type="button"
                     onClick={() => {
                       const input = document.getElementById(`amount-${goal.id}`);
-                      if (input.value) {
+                      if (input?.value) {
                         handleAddAmount(goal.id, input.value);
                         input.value = '';
                       }
                     }}
-                    style={styles.addAmountButton}
+                    className="btn btn-primary"
                   >
                     Добави
                   </button>
                 </div>
               )}
               {goal.is_achieved && (
-                <div style={styles.achievedBadge}>✓ Постигната</div>
+                <div
+                  style={{
+                    textAlign: 'center',
+                    padding: '0.5rem',
+                    background: 'var(--income-bg)',
+                    color: 'var(--income)',
+                    borderRadius: 'var(--radius)',
+                    fontWeight: 600,
+                    fontSize: '0.9rem'
+                  }}
+                >
+                  ✓ Постигната
+                </div>
               )}
             </div>
           ))
         ) : (
-          <div style={styles.empty}>Няма цели</div>
+          <div className="empty-state" style={{ gridColumn: '1 / -1' }}>
+            Няма цели
+          </div>
         )}
       </div>
     </div>
   );
 };
 
-const styles = {
-  header: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: '30px'
-  },
-  title: {
-    fontSize: '32px',
-    fontWeight: 'bold',
-    color: 'white'
-  },
-  addButton: {
-    padding: '12px 24px',
-    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-    color: 'white',
-    border: 'none',
-    borderRadius: '8px',
-    fontSize: '16px',
-    fontWeight: '600',
-    cursor: 'pointer'
-  },
-  summaryCards: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-    gap: '20px',
-    marginBottom: '30px'
-  },
-  summaryCard: {
-    background: 'white',
-    borderRadius: '16px',
-    padding: '20px',
-    boxShadow: '0 4px 20px rgba(0,0,0,0.1)'
-  },
-  summaryTitle: {
-    fontSize: '14px',
-    color: '#666',
-    marginBottom: '8px'
-  },
-  summaryValue: {
-    fontSize: '24px',
-    fontWeight: 'bold',
-    color: '#333'
-  },
-  modalOverlay: {
-    position: 'fixed',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    background: 'rgba(0,0,0,0.5)',
-    display: 'flex',
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 1000
-  },
-  modal: {
-    background: 'white',
-    borderRadius: '16px',
-    padding: '30px',
-    width: '90%',
-    maxWidth: '500px'
-  },
-  modalTitle: {
-    fontSize: '24px',
-    fontWeight: 'bold',
-    marginBottom: '20px',
-    color: '#333'
-  },
-  form: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '16px'
-  },
-  input: {
-    padding: '12px',
-    border: '2px solid #e0e0e0',
-    borderRadius: '8px',
-    fontSize: '16px',
-    outline: 'none'
-  },
-  textarea: {
-    padding: '12px',
-    border: '2px solid #e0e0e0',
-    borderRadius: '8px',
-    fontSize: '16px',
-    outline: 'none',
-    resize: 'vertical'
-  },
-  select: {
-    padding: '12px',
-    border: '2px solid #e0e0e0',
-    borderRadius: '8px',
-    fontSize: '16px',
-    outline: 'none'
-  },
-  modalActions: {
-    display: 'flex',
-    gap: '12px',
-    marginTop: '10px'
-  },
-  cancelButton: {
-    flex: 1,
-    padding: '12px',
-    background: '#f5f5f5',
-    border: 'none',
-    borderRadius: '8px',
-    fontSize: '16px',
-    cursor: 'pointer'
-  },
-  submitButton: {
-    flex: 1,
-    padding: '12px',
-    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-    color: 'white',
-    border: 'none',
-    borderRadius: '8px',
-    fontSize: '16px',
-    fontWeight: '600',
-    cursor: 'pointer'
-  },
-  goalsGrid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fill, minmax(350px, 1fr))',
-    gap: '20px'
-  },
-  goalCard: {
-    background: 'white',
-    borderRadius: '16px',
-    padding: '24px',
-    boxShadow: '0 4px 20px rgba(0,0,0,0.1)'
-  },
-  goalHeader: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: '12px'
-  },
-  goalTitle: {
-    fontSize: '20px',
-    fontWeight: 'bold',
-    color: '#333',
-    flex: 1
-  },
-  deleteButton: {
-    background: 'none',
-    border: 'none',
-    fontSize: '24px',
-    color: '#999',
-    cursor: 'pointer',
-    padding: '0',
-    width: '24px',
-    height: '24px',
-    lineHeight: '24px'
-  },
-  goalDescription: {
-    color: '#666',
-    marginBottom: '16px',
-    fontSize: '14px'
-  },
-  progressContainer: {
-    marginBottom: '16px'
-  },
-  progressBar: {
-    height: '8px',
-    background: '#f0f0f0',
-    borderRadius: '4px',
-    overflow: 'hidden',
-    marginBottom: '8px'
-  },
-  progressFill: {
-    height: '100%',
-    transition: 'width 0.3s'
-  },
-  progressInfo: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    fontSize: '14px',
-    color: '#666'
-  },
-  progressText: {
-    fontWeight: '500'
-  },
-  progressPercent: {
-    fontWeight: 'bold',
-    color: '#667eea'
-  },
-  goalMeta: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '8px',
-    marginBottom: '16px',
-    fontSize: '12px',
-    color: '#999'
-  },
-  goalType: {
-    textTransform: 'capitalize'
-  },
-  goalDate: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '8px'
-  },
-  daysRemaining: {
-    color: '#666'
-  },
-  addAmountContainer: {
-    display: 'flex',
-    gap: '8px',
-    marginTop: '16px'
-  },
-  amountInput: {
-    flex: 1,
-    padding: '8px 12px',
-    border: '2px solid #e0e0e0',
-    borderRadius: '6px',
-    fontSize: '14px',
-    outline: 'none'
-  },
-  addAmountButton: {
-    padding: '8px 16px',
-    background: '#667eea',
-    color: 'white',
-    border: 'none',
-    borderRadius: '6px',
-    fontSize: '14px',
-    fontWeight: '500',
-    cursor: 'pointer'
-  },
-  achievedBadge: {
-    textAlign: 'center',
-    padding: '8px',
-    background: '#d1fae5',
-    color: '#065f46',
-    borderRadius: '6px',
-    fontWeight: '600',
-    marginTop: '16px'
-  },
-  empty: {
-    gridColumn: '1 / -1',
-    textAlign: 'center',
-    color: 'white',
-    padding: '60px',
-    fontSize: '18px'
-  },
-  loading: {
-    textAlign: 'center',
-    color: 'white',
-    fontSize: '18px',
-    padding: '40px'
-  },
-  adviceSection: {
-    background: 'white',
-    borderRadius: '16px',
-    padding: '30px',
-    boxShadow: '0 4px 20px rgba(0,0,0,0.1)',
-    marginBottom: '30px'
-  },
-  adviceTitle: {
-    fontSize: '24px',
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: '20px'
-  },
-  adviceContainer: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '16px'
-  },
-  adviceItem: {
-    display: 'flex',
-    alignItems: 'flex-start',
-    gap: '12px',
-    padding: '16px',
-    background: '#f0f9ff',
-    borderRadius: '8px',
-    borderLeft: '4px solid #3b82f6'
-  },
-  adviceIcon: {
-    fontSize: '20px',
-    flexShrink: 0
-  },
-  adviceText: {
-    fontSize: '16px',
-    color: '#333',
-    lineHeight: '1.6',
-    margin: 0
-  }
-};
-
 export default Goals;
-

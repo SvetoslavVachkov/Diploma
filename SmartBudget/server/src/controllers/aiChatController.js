@@ -11,7 +11,7 @@ const chatHandler = async (req, res) => {
       });
     }
 
-    const { message } = req.body;
+    const { message, previousAction: bodyAction, previousActionData: bodyActionData } = req.body || {};
 
     if (!message || typeof message !== 'string' || message.trim().length === 0) {
       return res.status(400).json({
@@ -23,12 +23,22 @@ const chatHandler = async (req, res) => {
     const apiKey = process.env.OPENAI_API_KEY;
     const model = process.env.OPENAI_MODEL || 'gpt-4o-mini';
 
-    const previousAction = req.session.pendingAction || null;
-    const previousActionData = req.session.pendingActionData || null;
+    const previousAction = bodyAction ?? req.session?.pendingAction ?? null;
+    const previousActionData = bodyActionData ?? req.session?.pendingActionData ?? null;
 
-    const result = await chatWithAI(userId, message.trim(), apiKey, model, previousAction, previousActionData);
+    let result;
+    try {
+      result = await chatWithAI(userId, message.trim(), apiKey, model, previousAction, previousActionData);
+    } catch (chatErr) {
+      console.error('chatWithAI threw:', chatErr?.message || chatErr);
+      if (chatErr?.stack) console.error(chatErr.stack);
+      result = {
+        success: false,
+        error: chatErr?.message ? `Грешка: ${chatErr.message}` : 'Грешка при обработка на съобщението. Опитайте отново.'
+      };
+    }
 
-    if (result.success) {
+    if (result && result.success) {
       const responseData = {
         response: result.response,
         context: result.context
@@ -42,13 +52,15 @@ const chatHandler = async (req, res) => {
         responseData.requiresConfirmation = true;
         responseData.action = result.action;
         responseData.actionData = result.actionData;
-        req.session.pendingAction = result.action;
-        req.session.pendingActionData = result.actionData;
+        if (req.session) {
+          req.session.pendingAction = result.action;
+          req.session.pendingActionData = result.actionData;
+        }
       } else {
-        if (result.lastTransaction) {
+        if (result.lastTransaction && req.session) {
           req.session.pendingAction = 'show_last_transaction';
           req.session.pendingActionData = { lastTransaction: result.lastTransaction };
-        } else {
+        } else if (req.session) {
           req.session.pendingAction = null;
           req.session.pendingActionData = null;
         }
@@ -63,11 +75,13 @@ const chatHandler = async (req, res) => {
         data: responseData
       });
     } else {
-      req.session.pendingAction = null;
-      req.session.pendingActionData = null;
+      if (req.session) {
+        req.session.pendingAction = null;
+        req.session.pendingActionData = null;
+      }
       res.status(400).json({
         status: 'error',
-        message: result.error
+        message: (result && result.error) ? result.error : 'Грешка при обработка на съобщението.'
       });
     }
   } catch (error) {

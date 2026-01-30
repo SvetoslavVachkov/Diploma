@@ -21,9 +21,7 @@ const News = () => {
         const uniqueArticles = articlesData.filter(article => {
           if (!article || !article.title) return false;
           const normalizedTitle = article.title.toLowerCase().trim();
-          if (seenTitles.has(normalizedTitle)) {
-            return false;
-          }
+          if (seenTitles.has(normalizedTitle)) return false;
           seenTitles.add(normalizedTitle);
           return true;
         });
@@ -38,61 +36,72 @@ const News = () => {
   };
 
   if (loading && articles.length === 0) {
-    return <div style={styles.loading}>Зареждане...</div>;
+    return <div className="loading-screen">Зареждане…</div>;
   }
 
   return (
-    <div>
-      <h1 style={styles.title}>Новини</h1>
+    <div className="page">
+      <h1 className="page-title">Новини</h1>
       {articles.length > 0 ? (
         <>
-          <div style={styles.articlesGrid}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
             {articles.map((article) => (
               <a
                 key={article.id}
                 href={article.url}
                 target="_blank"
                 rel="noopener noreferrer"
-                style={styles.articleCard}
+                style={{
+                  background: 'var(--bg-card)',
+                  borderRadius: 'var(--radius-lg)',
+                  overflow: 'hidden',
+                  boxShadow: 'var(--shadow)',
+                  textDecoration: 'none',
+                  color: 'inherit',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  transition: 'box-shadow 0.2s',
+                  border: '1px solid var(--border)'
+                }}
+                onMouseOver={e => { e.currentTarget.style.boxShadow = 'var(--shadow-md)'; }}
+                onMouseOut={e => { e.currentTarget.style.boxShadow = 'var(--shadow)'; }}
               >
                 {article.image_url && (
-                  <img src={article.image_url} alt={article.title} style={styles.articleImage} />
+                  <img src={article.image_url} alt={article.title} style={{ width: '100%', height: 180, objectFit: 'cover' }} />
                 )}
-                <div style={styles.articleContent}>
-                  <h3 style={styles.articleTitle}>{article.title}</h3>
+                <div style={{ padding: '1rem', flex: 1, display: 'flex', flexDirection: 'column' }}>
+                  <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '0.5rem', lineHeight: 1.3 }}>{article.title}</h3>
                   {article.excerpt && (
-                    <p style={styles.articleExcerpt}>{article.excerpt.substring(0, 200)}...</p>
+                    <p style={{ fontSize: '0.9rem', color: 'var(--text-muted)', lineHeight: 1.5, flex: 1, marginBottom: '0.75rem' }}>
+                      {article.excerpt.substring(0, 200)}…
+                    </p>
                   )}
-                  <div style={styles.articleMeta}>
-                    <span style={styles.articleDate}>
-                      {article.published_at
-                        ? new Date(article.published_at).toLocaleDateString('bg-BG')
-                        : ''}
-                    </span>
-                    {article.source_name && (
-                      <span style={styles.articleSource}>{article.source_name}</span>
-                    )}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                    <span>{article.published_at ? new Date(article.published_at).toLocaleDateString('bg-BG') : ''}</span>
+                    {article.source_name && <span style={{ fontWeight: 500 }}>{article.source_name}</span>}
                   </div>
                 </div>
               </a>
             ))}
           </div>
           {totalPages > 1 && (
-            <div style={styles.pagination}>
+            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '1rem', marginTop: '1.5rem' }}>
               <button
+                type="button"
                 onClick={() => setPage(p => Math.max(1, p - 1))}
                 disabled={page === 1}
-                style={styles.paginationButton}
+                className="btn btn-secondary"
               >
                 Предишна
               </button>
-              <span style={styles.paginationInfo}>
+              <span style={{ fontSize: '0.9rem', color: 'var(--text-muted)' }}>
                 Страница {page} от {totalPages}
               </span>
               <button
+                type="button"
                 onClick={() => setPage(p => Math.min(totalPages, p + 1))}
                 disabled={page === totalPages}
-                style={styles.paginationButton}
+                className="btn btn-secondary"
               >
                 Следваща
               </button>
@@ -100,7 +109,7 @@ const News = () => {
           )}
         </>
       ) : (
-        <div style={styles.empty}>
+        <div className="empty-state">
           <p>Няма налични новини</p>
         </div>
       )}
@@ -108,109 +117,4 @@ const News = () => {
   );
 };
 
-const styles = {
-  title: {
-    fontSize: '36px',
-    fontWeight: 'bold',
-    color: '#1f2937',
-    marginBottom: '32px',
-    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-    WebkitBackgroundClip: 'text',
-    WebkitTextFillColor: 'transparent',
-    backgroundClip: 'text'
-  },
-  loading: {
-    textAlign: 'center',
-    color: '#666',
-    fontSize: '18px',
-    padding: '60px'
-  },
-  articlesGrid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fill, minmax(350px, 1fr))',
-    gap: '24px',
-    marginBottom: '32px'
-  },
-  articleCard: {
-    background: 'white',
-    borderRadius: '16px',
-    overflow: 'hidden',
-    boxShadow: '0 4px 20px rgba(0,0,0,0.1)',
-    textDecoration: 'none',
-    color: 'inherit',
-    display: 'flex',
-    flexDirection: 'column',
-    transition: 'all 0.3s ease',
-    border: '1px solid rgba(102, 126, 234, 0.1)'
-  },
-  articleImage: {
-    width: '100%',
-    height: '200px',
-    objectFit: 'cover'
-  },
-  articleContent: {
-    padding: '20px',
-    flex: 1,
-    display: 'flex',
-    flexDirection: 'column'
-  },
-  articleTitle: {
-    fontSize: '18px',
-    fontWeight: 'bold',
-    color: '#1f2937',
-    marginBottom: '12px',
-    lineHeight: '1.4'
-  },
-  articleExcerpt: {
-    fontSize: '14px',
-    color: '#6b7280',
-    lineHeight: '1.6',
-    marginBottom: '16px',
-    flex: 1
-  },
-  articleMeta: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    fontSize: '12px',
-    color: '#9ca3af'
-  },
-  articleDate: {
-    fontWeight: '500'
-  },
-  articleSource: {
-    fontWeight: '600'
-  },
-  pagination: {
-    display: 'flex',
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: '20px',
-    marginTop: '40px'
-  },
-  paginationButton: {
-    padding: '10px 20px',
-    background: '#667eea',
-    color: 'white',
-    border: 'none',
-    borderRadius: '8px',
-    cursor: 'pointer',
-    fontSize: '14px',
-    fontWeight: '500',
-    transition: 'all 0.3s'
-  },
-  paginationInfo: {
-    fontSize: '14px',
-    color: '#666',
-    fontWeight: '500'
-  },
-  empty: {
-    textAlign: 'center',
-    color: '#666',
-    padding: '60px',
-    fontSize: '18px'
-  }
-};
-
 export default News;
-
