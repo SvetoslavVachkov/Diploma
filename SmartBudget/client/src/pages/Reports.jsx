@@ -57,39 +57,27 @@ const Reports = () => {
       if (query && query.trim().length > 0) params.search = query.trim();
       params.skip_ai = 'true';
 
-      const shouldFetchMonthly = dateRange === 'month' || (dateRange === 'custom' && fromDate && toDate && fromDate.substring(0, 7) === toDate.substring(0, 7));
+      const shouldFetchMonthly =
+        dateRange === 'month' ||
+        (dateRange === 'custom' && fromDate && toDate && fromDate.substring(0, 7) === toDate.substring(0, 7));
 
-      const spendingPromise = api.get('/financial/reports/spending', { params }).catch((err) => {
-        return { data: { status: 'error', data: null } };
-      });
-
-      const productsPromise = api.get('/financial/reports/products', { params }).catch((err) => {
-        return { data: { status: 'error', data: null } };
-      });
-
+      const spendingPromise = api.get('/financial/reports/spending', { params }).catch(() => ({ data: { status: 'error', data: null } }));
+      const productsPromise = api.get('/financial/reports/products', { params }).catch(() => ({ data: { status: 'error', data: null } }));
       const monthlyPromise = shouldFetchMonthly
         ? api.get('/financial/reports/monthly', {
-          params: {
+            params: {
               year: fromDate && fromDate.length > 0 ? new Date(fromDate).getFullYear() : new Date().getFullYear(),
               month: fromDate && fromDate.length > 0 ? new Date(fromDate).getMonth() + 1 : new Date().getMonth() + 1
-          }
-          }).catch((err) => {
-            return { data: { status: 'error', data: null } };
-          })
+            }
+          }).catch(() => ({ data: { status: 'error', data: null } }))
         : Promise.resolve({ data: { status: 'success', data: null } });
 
       const spendingRes = await spendingPromise;
-      
+
       if (spendingRes.data?.status === 'success' && spendingRes.data.data) {
         const reportData = spendingRes.data.data;
         if (!reportData.summary) {
-          reportData.summary = { 
-            total_income: 0, 
-            total_spent: 0, 
-            balance: 0, 
-            transaction_count: 0, 
-            average_transaction: 0 
-          };
+          reportData.summary = { total_income: 0, total_spent: 0, balance: 0, transaction_count: 0, average_transaction: 0 };
         } else {
           if (reportData.summary.total_income === undefined) reportData.summary.total_income = 0;
           if (reportData.summary.total_spent === undefined) reportData.summary.total_spent = 0;
@@ -97,43 +85,25 @@ const Reports = () => {
           if (reportData.summary.transaction_count === undefined) reportData.summary.transaction_count = 0;
           if (reportData.summary.average_transaction === undefined) reportData.summary.average_transaction = 0;
         }
-        if (!reportData.top_categories) {
-          reportData.top_categories = [];
-        }
+        if (!reportData.top_categories) reportData.top_categories = [];
         if (!reportData.insights) {
-          reportData.insights = {
-            highest_spending_day: null,
-            largest_transaction: null,
-            most_frequent_category: null
-          };
+          reportData.insights = { highest_spending_day: null, largest_transaction: null, most_frequent_category: null };
         }
         setSpendingReport(reportData);
         hasLoadedReportsRef.current = true;
         setLoading(false);
-        
-        if (reportData.summary && reportData.summary.transaction_count > 0) {
-          setTimeout(() => {
-            fetchAiAnalysis(fromDate, toDate, query);
-          }, 100);
+
+        if (reportData.summary.transaction_count > 0) {
+          setTimeout(() => fetchAiAnalysis(fromDate, toDate, query), 100);
         } else {
           setAiAnalysisLoading(false);
           setAiAnalysis(null);
         }
       } else {
         setSpendingReport({
-          summary: { 
-            total_income: 0, 
-            total_spent: 0, 
-            balance: 0, 
-            transaction_count: 0, 
-            average_transaction: 0 
-          },
+          summary: { total_income: 0, total_spent: 0, balance: 0, transaction_count: 0, average_transaction: 0 },
           top_categories: [],
-          insights: {
-            highest_spending_day: null,
-            largest_transaction: null,
-            most_frequent_category: null
-          }
+          insights: { highest_spending_day: null, largest_transaction: null, most_frequent_category: null }
         });
         hasLoadedReportsRef.current = true;
         setLoading(false);
@@ -141,25 +111,21 @@ const Reports = () => {
         setAiAnalysis(null);
       }
 
-      productsPromise.then((productsRes) => {
-        if (productsRes.data?.status === 'success') {
-          setProductAnalysis(productsRes.data.data || { top_products: [], ai_recommendations: [] });
-        } else {
-          setProductAnalysis(null);
-        }
-      });
+      const productsRes = await productsPromise;
+      if (productsRes.data?.status === 'success') {
+        setProductAnalysis(productsRes.data.data || { top_products: [], ai_recommendations: [] });
+      } else {
+        setProductAnalysis(null);
+      }
 
-      monthlyPromise.then((monthlyRes) => {
-        if (shouldFetchMonthly && monthlyRes.data?.status === 'success' && monthlyRes.data.data) {
-          const monthlyData = monthlyRes.data.data;
-          if (!monthlyData.totals) {
-            monthlyData.totals = { income: 0, expense: 0, balance: 0 };
-          }
-          setMonthlyReport(monthlyData);
-        } else {
-          setMonthlyReport(null);
-        }
-      });
+      const monthlyRes = await monthlyPromise;
+      if (shouldFetchMonthly && monthlyRes.data?.status === 'success' && monthlyRes.data.data) {
+        const monthlyData = monthlyRes.data.data;
+        if (!monthlyData.totals) monthlyData.totals = { income: 0, expense: 0, balance: 0 };
+        setMonthlyReport(monthlyData);
+      } else {
+        setMonthlyReport(null);
+      }
     } catch (error) {
       setSpendingReport(null);
       setMonthlyReport(null);
@@ -213,64 +179,49 @@ const Reports = () => {
   }, [searchQuery]);
 
   useEffect(() => {
-    if (dateRange === 'custom') {
-      return;
-    }
+  if (dateRange === 'custom') return;
 
-    const today = new Date();
-    today.setHours(23, 59, 59, 999);
-    let from = '';
-    let to = '';
-    
-    switch(dateRange) {
-      case 'week':
-        const weekAgo = new Date(today);
-        weekAgo.setDate(today.getDate() - 7);
-        weekAgo.setHours(0, 0, 0, 0);
-        from = `${weekAgo.getFullYear()}-${String(weekAgo.getMonth() + 1).padStart(2, '0')}-${String(weekAgo.getDate()).padStart(2, '0')}`;
-        to = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-        break;
-      case 'month':
-        const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
-        const monthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0);
-        from = `${monthStart.getFullYear()}-${String(monthStart.getMonth() + 1).padStart(2, '0')}-${String(monthStart.getDate()).padStart(2, '0')}`;
-        to = `${monthEnd.getFullYear()}-${String(monthEnd.getMonth() + 1).padStart(2, '0')}-${String(monthEnd.getDate()).padStart(2, '0')}`;
-        break;
-      case 'quarter':
-        const quarter = Math.floor(today.getMonth() / 3);
-        const quarterStart = new Date(today.getFullYear(), quarter * 3, 1);
-        const quarterEnd = new Date(today.getFullYear(), (quarter + 1) * 3, 0);
-        from = `${quarterStart.getFullYear()}-${String(quarterStart.getMonth() + 1).padStart(2, '0')}-${String(quarterStart.getDate()).padStart(2, '0')}`;
-        to = `${quarterEnd.getFullYear()}-${String(quarterEnd.getMonth() + 1).padStart(2, '0')}-${String(quarterEnd.getDate()).padStart(2, '0')}`;
-        break;
-      case 'year':
-        const yearStart = new Date(today.getFullYear(), 0, 1);
-        yearStart.setHours(0, 0, 0, 0);
-        const yearEnd = new Date(today.getFullYear(), 11, 31);
-        yearEnd.setHours(23, 59, 59, 999);
-        from = `${yearStart.getFullYear()}-${String(yearStart.getMonth() + 1).padStart(2, '0')}-${String(yearStart.getDate()).padStart(2, '0')}`;
-        to = `${yearEnd.getFullYear()}-${String(yearEnd.getMonth() + 1).padStart(2, '0')}-${String(yearEnd.getDate()).padStart(2, '0')}`;
-        break;
-      case 'all':
-        from = '';
-        to = '';
-        break;
-      default:
-        const defaultStart = new Date(today.getFullYear(), today.getMonth(), 1);
-        const defaultEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0);
-        from = `${defaultStart.getFullYear()}-${String(defaultStart.getMonth() + 1).padStart(2, '0')}-${String(defaultStart.getDate()).padStart(2, '0')}`;
-        to = `${defaultEnd.getFullYear()}-${String(defaultEnd.getMonth() + 1).padStart(2, '0')}-${String(defaultEnd.getDate()).padStart(2, '0')}`;
-    }
-    
-    setDateFrom(from);
-    setDateTo(to);
-  }, [dateRange]);
+  const today = new Date();
+  today.setHours(23, 59, 59, 999);
+  let from = '';
+  let to = '';
+  
+  switch(dateRange) {
+    case 'week':
+      const weekAgo = new Date(today);
+      weekAgo.setDate(today.getDate() - 7);
+      from = weekAgo.toISOString().split('T')[0];
+      to = today.toISOString().split('T')[0];
+      break;
+    case 'month':
+      const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+      const monthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+      from = monthStart.toISOString().split('T')[0];
+      to = monthEnd.toISOString().split('T')[0];
+      break;
+    case 'year':
+      const yearStart = new Date(today.getFullYear(), 0, 1);
+      from = yearStart.toISOString().split('T')[0];
+      to = today.toISOString().split('T')[0];
+      break;
+    case 'all':
+      from = '';
+      to = '';
+      break;
+    default:
+      from = '';
+      to = '';
+  }
+  
+  setDateFrom(from);
+  setDateTo(to);
+}, [dateRange]);
 
-  useEffect(() => {
-    if (dateRange !== 'custom' || (dateFrom && dateTo)) {
-      fetchReports(dateFrom, dateTo, debouncedSearchQuery);
-    }
-  }, [dateFrom, dateTo, debouncedSearchQuery, dateRange, fetchReports]);
+useEffect(() => {
+  if (dateRange !== 'custom' || (dateFrom && dateTo)) {
+    fetchReports(dateFrom, dateTo, debouncedSearchQuery);
+  }
+}, [dateFrom, dateTo, debouncedSearchQuery, dateRange]);
 
   if (loading) {
     return <div className="loading-screen">Зареждане…</div>;
