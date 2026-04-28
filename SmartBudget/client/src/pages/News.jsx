@@ -44,7 +44,7 @@ const News = () => {
       <h1 className="page-title">Новини</h1>
       {articles.length > 0 ? (
         <>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
+          <div className="grid-cards" style={{ marginBottom: '1.5rem' }}>
             {articles.map((article) => (
               <a
                 key={article.id}

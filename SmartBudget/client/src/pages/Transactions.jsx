@@ -624,7 +624,7 @@ const Transactions = () => {
               </div>
             </div>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
+          <div className="grid-cards" style={{ marginBottom: '1.5rem' }}>
             {Object.keys(dailyData).length > 0 && (
               <div className="chart-card">
                 <h2 className="chart-title">Тренд за последните 30 дни</h2>

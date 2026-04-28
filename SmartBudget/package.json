@@ -6,7 +6,11 @@
   "scripts": {
     "start": "node server/src/app.js",
     "dev": "nodemon server/src/app.js",
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "npm run test:all",
+    "test:all": "npm run test:backend && npm run test:frontend",
+    "test:backend": "vitest run --config server/vitest.config.js",
+    "test:backend:watch": "vitest --config server/vitest.config.js",
+    "test:frontend": "npm --prefix client run test:run",
     "test:news": "node server/src/scripts/testNewsFetcher.js",
     "test:ai": "node server/src/scripts/testAIProcessing.js",
     "test:financial": "node server/src/scripts/testFinancial.js",
@@ -42,6 +46,7 @@
   "devDependencies": {
     "@types/node": "^24.9.1",
     "ts-node": "^10.9.2",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vitest": "^1.6.0"
   }
 }

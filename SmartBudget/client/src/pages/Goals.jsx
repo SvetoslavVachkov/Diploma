@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import api from '../services/api';
+import AiRichText from '../components/AiRichText';
 
 const Goals = () => {
   const [goals, setGoals] = useState([]);
@@ -147,7 +148,9 @@ const Goals = () => {
                   }}
                 >
                   <span style={{ flexShrink: 0 }}>💡</span>
-                  <p style={{ margin: 0, fontSize: '0.95rem', lineHeight: 1.5 }}>{tip}</p>
+                  <div style={{ margin: 0, fontSize: '0.95rem', lineHeight: 1.5, flex: 1 }}>
+                    <AiRichText content={tip} />
+                  </div>
                 </div>
               ))}
             </div>
@@ -216,7 +219,7 @@ const Goals = () => {
         </div>
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '1rem' }}>
+      <div className="grid-cards">
         {goals.length > 0 ? (
           goals.map((goal) => (
             <div key={goal.id} className="card">

@@ -1,9 +1,12 @@
-/smartBudget/.env
+/SmartBudget/.env
 /SmartBudget/node_modules
+/SmartBudget/client/node_modules
 /SmartBudget/package-lock.json
 /SmartBudget/package.json
 /smartBudget/.env
-smartBudget/SmartBudget/uploads/
+/SmartBudget/uploads/
 SmartBudget/server/uploads/
 SmartBudget/bul.traineddata
 SmartBudget/eng.traineddata
+.env
+/SmartBudget/SmartBudget/client/node_modules

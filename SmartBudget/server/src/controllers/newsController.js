@@ -1,6 +1,7 @@
 const { NewsSource, NewsArticle, FetchLog, AIAnalysis } = require('../models');
 const { Op } = require('sequelize');
 const { scoreImportance } = require('../services/ai/importanceService');
+const { fetchAllActiveSources } = require('../services/newsFetcher');
 
 const getArticles = async (req, res) => {
   try {
@@ -19,7 +20,7 @@ const getArticles = async (req, res) => {
       where.published_at = { ...where.published_at, [Op.lte]: new Date(req.query.date_to) };
     }
 
-    const { count, rows } = await NewsArticle.findAndCountAll({
+    let { count, rows } = await NewsArticle.findAndCountAll({
       where,
       include: [{
         model: NewsSource,
@@ -31,6 +32,35 @@ const getArticles = async (req, res) => {
       offset,
       distinct: true
     });
+
+    // If no articles found, try to fetch from sources immediately
+    if (count === 0) {
+      console.log('No articles found, fetching from sources...');
+      try {
+        await fetchAllActiveSources();
+        console.log('Fetching completed, re-fetching articles...');
+      } catch (fetchError) {
+        console.error('Error fetching articles:', fetchError);
+      }
+      
+      // Re-fetch articles after fetching
+      const refetchResult = await NewsArticle.findAndCountAll({
+        where,
+        include: [{
+          model: NewsSource,
+          as: 'source',
+          attributes: ['id', 'name', 'logo_url', 'url']
+        }],
+        order: [['published_at', 'DESC']],
+        limit: limit * 3,
+        offset,
+        distinct: true
+      });
+      
+      // Update count and rows with refetched data
+      count = refetchResult.count;
+      rows = refetchResult.rows;
+    }
 
     const apiKey = process.env.HF_NEWS_API_KEY;
     const model = process.env.HF_NEWS_MODEL || 'mistralai/Mistral-7B-Instruct-v0.2';

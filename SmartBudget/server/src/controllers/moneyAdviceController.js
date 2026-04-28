@@ -11,7 +11,7 @@ const getAdviceHandler = async (req, res) => {
       });
     }
 
-    const periodDays = parseInt(req.query.periodDays) || 90;
+    const periodDays = parseInt(req.query.periodDays) || 365;
 
     const result = await getMoneyAdvice(userId, { periodDays });
 

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import api from '../services/api';
+import AiRichText from '../components/AiRichText';
 
 const AIChat = () => {
   const [messages, setMessages] = useState([]);
@@ -68,7 +69,7 @@ const AIChat = () => {
   };
 
   return (
-    <div className="page" style={{ maxWidth: 720, margin: '0 auto', display: 'flex', flexDirection: 'column', minHeight: 'calc(100vh - 12rem)' }}>
+    <div className="page chat-page" style={{ maxWidth: 720, margin: '0 auto', display: 'flex', flexDirection: 'column' }}>
       <h1 className="page-title" style={{ marginBottom: '1rem' }}>AI Чат</h1>
       <div
         style={{
@@ -108,10 +109,10 @@ const AIChat = () => {
                 color: msg.role === 'user' ? 'white' : 'var(--text)',
                 fontSize: '0.95rem',
                 lineHeight: 1.5,
-                whiteSpace: 'pre-wrap'
+                whiteSpace: msg.role === 'user' ? 'pre-wrap' : 'normal'
               }}
             >
-              {msg.content}
+              {msg.role === 'user' ? msg.content : <AiRichText content={msg.content} className="ai-chat-content" />}
             </div>
           ))}
           {loading && (
@@ -129,7 +130,7 @@ const AIChat = () => {
           )}
           <div ref={messagesEndRef} />
         </div>
-        <form onSubmit={sendMessage} style={{ display: 'flex', gap: '0.5rem', padding: '1rem', borderTop: '1px solid var(--border)', background: 'var(--bg-muted)' }}>
+        <form onSubmit={sendMessage} className="chat-form" style={{ padding: '1rem', borderTop: '1px solid var(--border)', background: 'var(--bg-muted)' }}>
           <input
             type="text"
             className="input"

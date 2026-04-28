@@ -151,8 +151,14 @@ const parseTBIBankStatement = (text) => {
     
     if (!hasDt && !hasKt) continue;
     
+    // TBI statements typically contain 2 dates per row:
+    // - "Дата осч." (accounting/booking date) first
+    // - "Вальор" (value date) second
+    // We use the accounting date to match what users see as the posted transaction date.
     const allDates = line.match(/\d{2}\.\d{2}\.\d{4}/g) || [];
-    const dateStr = allDates.length >= 2 ? allDates[1] : (dateMatch[1] || allDates[0]);
+    const accountingDate = allDates[0];
+    const valueDate = allDates[1];
+    const dateStr = accountingDate || valueDate || dateMatch[1] || allDates[0];
     let isIncome = hasKt;
     
     let description = '';

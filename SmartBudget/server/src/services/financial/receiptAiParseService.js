@@ -22,7 +22,7 @@ const extractJsonObject = (text) => {
   return null;
 };
 
-const parseReceiptWithAI = async (receiptText, { apiKey, model, useOpenAI = true } = {}) => {
+const parseReceiptWithAI = async (receiptText, { apiKey, model, useOpenAI = true, hfApiKey, hfModel } = {}) => {
   if (!receiptText) return null;
 
   const text = String(receiptText);
@@ -45,7 +45,9 @@ const parseReceiptWithAI = async (receiptText, { apiKey, model, useOpenAI = true
     }
   }
 
-  if (!apiKey || !model) return null;
+  const hfKey = hfApiKey || process.env.HF_TXN_API_KEY || process.env.HF_STMT_API_KEY || null;
+  const hfTargetModel = hfModel || model || process.env.HF_TXN_MODEL || process.env.HF_STMT_MODEL || null;
+  if (!hfKey || !hfTargetModel) return null;
 
   const prompt = `You are an expert receipt parser.
 Extract the MERCHANT name and the TOTAL amount in EUR from the receipt OCR text.
@@ -72,14 +74,14 @@ ${clipped}`;
     response = await axios.post(
       HF_ROUTER_URL,
       {
-        model,
+        model: hfTargetModel,
         messages: [{ role: 'user', content: prompt }],
         max_tokens: 256,
         temperature: 0.2
       },
       {
         headers: {
-          Authorization: `Bearer ${apiKey}`,
+          Authorization: `Bearer ${hfKey}`,
           'Content-Type': 'application/json'
         },
         timeout: 60000

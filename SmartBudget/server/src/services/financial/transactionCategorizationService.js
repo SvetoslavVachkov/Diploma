@@ -118,7 +118,7 @@ const extractMerchantName = (description) => {
   };
 };
 
-const classifyMerchantWithOpenAI = async (merchantName, description, allCategories, apiKey, model) => {
+const classifyMerchantWithOpenAI = async (merchantName, description, allCategories, apiKey, model, groqApiKey, groqModel) => {
   if (!apiKey || allCategories.length === 0) {
     return null;
   }
@@ -144,31 +144,54 @@ Rules:
 
 Return ONLY the category name that best matches.`;
 
-    const response = await axios.post(
-      'https://api.groq.com/openai/v1/chat/completions',
-      {
-        model: model || 'gpt-4o-mini',
-        messages: [
-          {
-            role: 'system',
-            content: 'You are an expert financial transaction classifier. Always return only the category name from the provided list, nothing else.'
-          },
-          {
-            role: 'user',
-            content: prompt
-          }
-        ],
-        temperature: 0.3,
-        max_tokens: 50
-      },
-      {
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json'
+    const requestBody = {
+      model: model || 'gpt-4o-mini',
+      messages: [
+        {
+          role: 'system',
+          content: 'You are an expert financial transaction classifier. Always return only the category name from the provided list, nothing else.'
         },
-        timeout: 15000
+        {
+          role: 'user',
+          content: prompt
+        }
+      ],
+      temperature: 0.3,
+      max_tokens: 50
+    };
+
+    let response;
+    try {
+      response = await axios.post(
+        'https://api.openai.com/v1/chat/completions',
+        requestBody,
+        {
+          headers: {
+            'Authorization': `Bearer ${apiKey}`,
+            'Content-Type': 'application/json'
+          },
+          timeout: 15000
+        }
+      );
+    } catch (primaryErr) {
+      if (!groqApiKey || !groqModel) {
+        throw primaryErr;
       }
-    );
+      response = await axios.post(
+        'https://api.groq.com/openai/v1/chat/completions',
+        {
+          ...requestBody,
+          model: groqModel
+        },
+        {
+          headers: {
+            'Authorization': `Bearer ${groqApiKey}`,
+            'Content-Type': 'application/json'
+          },
+          timeout: 15000
+        }
+      );
+    }
 
     if (response.data && response.data.choices && response.data.choices.length > 0) {
       const content = response.data.choices[0].message?.content?.trim() || '';
@@ -242,7 +265,7 @@ const generateCategoryNameFromDescription = (description) => {
   return null;
 };
 
-const classifyWithOpenAI = async (text, categories, apiKey, model) => {
+const classifyWithOpenAI = async (text, categories, apiKey, model, groqApiKey, groqModel) => {
   if (!apiKey || categories.length === 0) {
     return null;
   }
@@ -262,31 +285,54 @@ Consider:
 
 Return only the category name that best matches.`;
 
-    const response = await axios.post(
-      'https://api.groq.com/openai/v1/chat/completions',
-      {
-        model: model || 'gpt-4o-mini',
-        messages: [
-          {
-            role: 'system',
-            content: 'You are an expert financial transaction classifier. Always return only the category name from the provided list, nothing else.'
-          },
-          {
-            role: 'user',
-            content: prompt
-          }
-        ],
-        temperature: 0.3,
-        max_tokens: 50
-      },
-      {
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json'
+    const requestBody = {
+      model: model || 'gpt-4o-mini',
+      messages: [
+        {
+          role: 'system',
+          content: 'You are an expert financial transaction classifier. Always return only the category name from the provided list, nothing else.'
         },
-        timeout: 15000
+        {
+          role: 'user',
+          content: prompt
+        }
+      ],
+      temperature: 0.3,
+      max_tokens: 50
+    };
+
+    let response;
+    try {
+      response = await axios.post(
+        'https://api.openai.com/v1/chat/completions',
+        requestBody,
+        {
+          headers: {
+            'Authorization': `Bearer ${apiKey}`,
+            'Content-Type': 'application/json'
+          },
+          timeout: 15000
+        }
+      );
+    } catch (primaryErr) {
+      if (!groqApiKey || !groqModel) {
+        throw primaryErr;
       }
-    );
+      response = await axios.post(
+        'https://api.groq.com/openai/v1/chat/completions',
+        {
+          ...requestBody,
+          model: groqModel
+        },
+        {
+          headers: {
+            'Authorization': `Bearer ${groqApiKey}`,
+            'Content-Type': 'application/json'
+          },
+          timeout: 15000
+        }
+      );
+    }
 
     if (response.data && response.data.choices && response.data.choices.length > 0) {
       const content = response.data.choices[0].message?.content?.trim() || '';
@@ -444,6 +490,8 @@ const categorizeTransaction = async (description, amount, options = {}) => {
     const extracted = extractMerchantName(description);
     const openaiApiKey = options.openaiApiKey || process.env.OPENAI_API_KEY;
     const openaiModel = options.openaiModel || process.env.OPENAI_MODEL || 'gpt-4o-mini';
+    const groqApiKey = options.groqApiKey || process.env.GROQ_API_KEY || null;
+    const groqModel = options.groqModel || process.env.GROQ_MODEL || null;
 
     if (openaiApiKey && extracted && extracted.merchantName) {
       try {
@@ -452,7 +500,9 @@ const categorizeTransaction = async (description, amount, options = {}) => {
           description,
           typeCategories.map(c => ({ id: c.id, name: c.name, type: c.type })),
           openaiApiKey,
-          openaiModel
+          openaiModel,
+          groqApiKey,
+          groqModel
         );
 
         if (merchantResult && merchantResult.categoryId) {
@@ -477,7 +527,9 @@ const categorizeTransaction = async (description, amount, options = {}) => {
           description,
           typeCategories.map(c => ({ id: c.id, name: c.name, type: c.type })),
           openaiApiKey,
-          openaiModel
+          openaiModel,
+          groqApiKey,
+          groqModel
         );
       } catch (error) {
       }

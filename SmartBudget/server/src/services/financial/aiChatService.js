@@ -5,9 +5,8 @@ const { createTransaction, deleteTransaction, getTransactions } = require('./tra
 const { categorizeTransaction } = require('./transactionCategorizationService');
 const { createGoal, updateGoal, deleteGoal, getGoals } = require('./goalService');
 
-const getFinancialContext = async (userId, periodDays = 90) => {
+const getFinancialContext = async (userId, periodDays = 365) => {
   const endDate = new Date();
-  endDate.setFullYear(endDate.getFullYear() + 1);
   endDate.setHours(23, 59, 59, 999);
   const startDate = new Date();
   startDate.setDate(startDate.getDate() - periodDays);
@@ -150,6 +149,77 @@ const getFinancialContext = async (userId, periodDays = 90) => {
     },
     recentTransactions: recentTransactions,
     goals: goalsData
+  };
+};
+
+const BULGARIAN_MONTHS = {
+  'януари': 1,
+  'февруари': 2,
+  'март': 3,
+  'април': 4,
+  'май': 5,
+  'юни': 6,
+  'юли': 7,
+  'август': 8,
+  'септември': 9,
+  'октомври': 10,
+  'ноември': 11,
+  'декември': 12
+};
+
+const tryBuildMonthlyExpenseAnswer = (userMessage, context) => {
+  const messageLower = String(userMessage || '').toLowerCase();
+  const asksExpenseTotal =
+    (messageLower.includes('изхарчил') || messageLower.includes('похарчил') || messageLower.includes('харчил') || messageLower.includes('разход')) &&
+    (messageLower.includes('колко') || messageLower.includes('общо'));
+
+  if (!asksExpenseTotal) {
+    return null;
+  }
+
+  let targetMonth = null;
+  for (const [monthName, monthNumber] of Object.entries(BULGARIAN_MONTHS)) {
+    if (messageLower.includes(monthName)) {
+      targetMonth = monthNumber;
+      break;
+    }
+  }
+
+  const yearMatch = messageLower.match(/\b(20\d{2})\b/);
+  const targetYear = yearMatch ? parseInt(yearMatch[1], 10) : null;
+
+  if (!targetMonth || !targetYear) {
+    return null;
+  }
+
+  const monthlyExpenses = (context?.recentTransactions || []).filter((transaction) => {
+    if (!transaction || transaction.type !== 'expense' || !transaction.date) {
+      return false;
+    }
+
+    const date = new Date(transaction.date);
+    if (Number.isNaN(date.getTime())) {
+      return false;
+    }
+
+    return date.getFullYear() === targetYear && date.getMonth() + 1 === targetMonth;
+  });
+
+  const total = monthlyExpenses.reduce((sum, transaction) => sum + Math.abs(parseFloat(transaction.amount || 0)), 0);
+  const monthName = Object.keys(BULGARIAN_MONTHS).find((name) => BULGARIAN_MONTHS[name] === targetMonth) || '';
+
+  if (monthlyExpenses.length === 0) {
+    return {
+      success: true,
+      response: `През ${monthName} ${targetYear} нямате разходи.`,
+      context
+    };
+  }
+
+  return {
+    success: true,
+    response: `През ${monthName} ${targetYear} общо сте изхарчили ${total.toFixed(2)} €. Това включва ${monthlyExpenses.length} разходни транзакции.`,
+    context
   };
 };
 
@@ -957,13 +1027,18 @@ const chatWithAI = async (userId, userMessage, apiKey, model, previousAction = n
 
   let context;
   try {
-    context = await getFinancialContext(userId, 90);
+    context = await getFinancialContext(userId, 365);
   } catch (ctxErr) {
     console.error('getFinancialContext error:', ctxErr);
     return {
       success: false,
       error: 'Неуспешно зареждане на финансовите данни. Моля опитайте отново по-късно.'
     };
+  }
+
+  const directMonthlyExpenseAnswer = tryBuildMonthlyExpenseAnswer(userMessage, context);
+  if (directMonthlyExpenseAnswer) {
+    return directMonthlyExpenseAnswer;
   }
 
   const defaultModel = model || 'gpt-4o-mini';

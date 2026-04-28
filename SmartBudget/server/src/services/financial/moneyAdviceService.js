@@ -2,7 +2,7 @@ const { FinancialTransaction, FinancialCategory, Budget, ReceiptProduct } = requ
 const { Op } = require('sequelize');
 const axios = require('axios');
 
-const analyzeSpendingPatterns = async (userId, periodDays = 90) => {
+const analyzeSpendingPatterns = async (userId, periodDays = 365) => {
   try {
     const endDate = new Date();
     const startDate = new Date();
@@ -213,7 +213,10 @@ ${topProducts.length > 0 ? `Най-често купувани продукти:
 - Включвай конкретни суми, продукти, категории от данните
 - Бъди обективен - кажи каквото виждаш в данните
 - Отговори на български език
-- Всеки съвет да бъде на отделен ред или маркиран с номер/тире`;
+- Всеки съвет да бъде на отделен ред или маркиран с номер/тире
+- НЕ задавай въпроси към потребителя
+- НЕ завършвай с покана за отговор
+- Завърши с конкретно заключение, не с въпрос`;
 
     try {
       const response = await axios.post(
@@ -336,7 +339,7 @@ const generateAdviceWithRules = (spendingData) => {
 
 const getMoneyAdvice = async (userId, options = {}) => {
   try {
-    const periodDays = options.periodDays || 90;
+    const periodDays = options.periodDays || 365;
     
     const spendingAnalysis = await analyzeSpendingPatterns(userId, periodDays);
     

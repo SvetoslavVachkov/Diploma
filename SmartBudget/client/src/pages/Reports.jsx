@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Line, Doughnut } from 'react-chartjs-2';
 import {
   Chart as ChartJS,
@@ -12,6 +12,7 @@ import {
   Legend
 } from 'chart.js';
 import api from '../services/api';
+import AiRichText from '../components/AiRichText';
 
 ChartJS.register(
   CategoryScale,
@@ -36,10 +37,20 @@ const Reports = () => {
   const [dateRange, setDateRange] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
+  const aiAnalysisCacheRef = useRef(new Map());
+  const latestAiRequestRef = useRef('');
+  const hasLoadedReportsRef = useRef(false);
+
+  const buildAnalysisKey = (fromDate = '', toDate = '', query = '') =>
+    JSON.stringify({
+      fromDate: fromDate?.trim?.() || '',
+      toDate: toDate?.trim?.() || '',
+      query: query?.trim?.() || ''
+    });
 
   const fetchReports = useCallback(async (fromDate = dateFrom, toDate = dateTo, query = debouncedSearchQuery) => {
     try {
-      setLoading(true);
+      setLoading(!hasLoadedReportsRef.current);
       const params = {};
       if (fromDate && fromDate.trim().length > 0) params.date_from = fromDate.trim();
       if (toDate && toDate.trim().length > 0) params.date_to = toDate.trim();
@@ -97,6 +108,7 @@ const Reports = () => {
           };
         }
         setSpendingReport(reportData);
+        hasLoadedReportsRef.current = true;
         setLoading(false);
         
         if (reportData.summary && reportData.summary.transaction_count > 0) {
@@ -123,6 +135,7 @@ const Reports = () => {
             most_frequent_category: null
           }
         });
+        hasLoadedReportsRef.current = true;
         setLoading(false);
         setAiAnalysisLoading(false);
         setAiAnalysis(null);
@@ -158,9 +171,17 @@ const Reports = () => {
   }, [dateFrom, dateTo, debouncedSearchQuery, dateRange]);
 
   const fetchAiAnalysis = useCallback(async (fromDate = dateFrom, toDate = dateTo, query = debouncedSearchQuery) => {
+    const analysisKey = buildAnalysisKey(fromDate, toDate, query);
+    latestAiRequestRef.current = analysisKey;
+
+    if (aiAnalysisCacheRef.current.has(analysisKey)) {
+      setAiAnalysis(aiAnalysisCacheRef.current.get(analysisKey));
+      setAiAnalysisLoading(false);
+      return;
+    }
+
     try {
       setAiAnalysisLoading(true);
-      setAiAnalysis(null);
       const params = {};
       if (fromDate && fromDate.trim().length > 0) params.date_from = fromDate.trim();
       if (toDate && toDate.trim().length > 0) params.date_to = toDate.trim();
@@ -168,12 +189,19 @@ const Reports = () => {
 
       const response = await api.get('/financial/reports/spending/analysis', { params });
       if (response.data?.status === 'success' && response.data.data?.ai_analysis) {
-        setAiAnalysis(response.data.data.ai_analysis);
+        aiAnalysisCacheRef.current.set(analysisKey, response.data.data.ai_analysis);
+        if (latestAiRequestRef.current === analysisKey) {
+          setAiAnalysis(response.data.data.ai_analysis);
+        }
       }
     } catch (error) {
-      setAiAnalysis(null);
+      if (!aiAnalysisCacheRef.current.has(analysisKey) && latestAiRequestRef.current === analysisKey) {
+        setAiAnalysis(null);
+      }
     } finally {
-      setAiAnalysisLoading(false);
+      if (latestAiRequestRef.current === analysisKey) {
+        setAiAnalysisLoading(false);
+      }
     }
   }, [dateFrom, dateTo, debouncedSearchQuery]);
 
@@ -364,7 +392,7 @@ const Reports = () => {
         </div>
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
+      <div className="grid-cards" style={{ marginBottom: '1.5rem' }}>
         {doughnutData && categoryData.length > 0 && (
           <div className="chart-card">
             <h2 className="chart-title">Разпределение по категории</h2>
@@ -425,7 +453,7 @@ const Reports = () => {
       {productAnalysis?.top_products?.length > 0 && (
         <div className="section">
           <h2 className="section-title">Най-купувани продукти</h2>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '0.75rem', marginBottom: '1rem' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '0.75rem', marginBottom: '1rem' }}>
             {productAnalysis.top_products.slice(0, 20).map((product, idx) => (
               <div key={idx} style={{ padding: '1rem', background: 'var(--bg-muted)', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }}>
                 <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '0.5rem' }}>{product.product_name || 'Неизвестен продукт'}</h3>
@@ -438,9 +466,7 @@ const Reports = () => {
           {productAnalysis.ai_recommendations?.length > 0 && (
             <div style={{ marginTop: '1rem', padding: '1rem', background: 'var(--primary-light)', borderRadius: 'var(--radius)', border: '1px solid var(--primary)' }}>
               <h3 style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--primary)', marginBottom: '0.75rem' }}>AI Препоръки</h3>
-              {productAnalysis.ai_recommendations.map((rec, idx) => (
-                <p key={idx} style={{ margin: '0.5rem 0', fontSize: '0.9rem', lineHeight: 1.5 }}>{rec}</p>
-              ))}
+              <AiRichText content={productAnalysis.ai_recommendations.map((rec) => `- ${rec}`).join('\n')} />
             </div>
           )}
         </div>
@@ -455,9 +481,7 @@ const Reports = () => {
             </div>
           ) : aiAnalysis ? (
             <div style={{ padding: '1.25rem', background: 'var(--bg-muted)', borderRadius: 'var(--radius)', maxHeight: 400, overflowY: 'auto' }}>
-              {aiAnalysis.split('\n').map((line, idx) => (
-                <p key={idx} style={{ margin: '0.5rem 0', fontSize: '0.95rem', lineHeight: 1.6 }}>{line.trim() || '\u00A0'}</p>
-              ))}
+              <AiRichText content={aiAnalysis} />
             </div>
           ) : null}
         </div>

@@ -11,10 +11,18 @@ const { initializeAIProcessingScheduler } = require('./jobs/aiProcessingSchedule
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// API should return JSON bodies consistently; disable ETag/conditional 304s
+app.disable('etag');
+
 app.use(cors());
 app.use(morgan('dev'));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+
+app.use('/api', (req, res, next) => {
+  res.setHeader('Cache-Control', 'no-store');
+  next();
+});
 
 app.use((req, res, next) => {
   req.setTimeout(180000);

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import api from '../services/api';
+import AiRichText from '../components/AiRichText';
 
 const Dashboard = () => {
   const [summary, setSummary] = useState(null);
@@ -12,7 +13,6 @@ const Dashboard = () => {
     fetchAdvice();
     const interval = setInterval(() => {
       fetchSummary();
-      fetchAdvice();
     }, 30000);
     return () => clearInterval(interval);
   }, []);
@@ -42,8 +42,8 @@ const Dashboard = () => {
 
   const fetchAdvice = async () => {
     try {
-      setAdviceLoading(true);
-      const response = await api.get('/financial/advice?periodDays=90');
+      setAdviceLoading(!advice);
+      const response = await api.get('/financial/advice?periodDays=365');
       if (response.data.status === 'success') {
         setAdvice(response.data.data);
       }
@@ -85,40 +85,32 @@ const Dashboard = () => {
         {adviceLoading ? (
           <p className="empty-state">Зареждане на съвети…</p>
         ) : advice?.advice?.length > 0 ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.9rem' }}>
             {advice.advice.map((tip, index) => (
               <div
                 key={index}
-                style={{
-                  display: 'flex',
-                  alignItems: 'flex-start',
-                  gap: '0.75rem',
-                  padding: '0.75rem 1rem',
-                  background: 'var(--primary-light)',
-                  borderRadius: 'var(--radius)',
-                  borderLeft: '4px solid var(--primary)'
-                }}
+                className="dashboard-ai-card"
               >
-                <span style={{ flexShrink: 0 }}>💡</span>
-                <p style={{ margin: 0, fontSize: '0.95rem', lineHeight: 1.5 }}>{tip}</p>
+                <div className="dashboard-ai-index">{String(index + 1).padStart(2, '0')}</div>
+                <div style={{ margin: 0, fontSize: '0.95rem', lineHeight: 1.5, flex: 1 }}>
+                  <AiRichText content={tip} />
+                </div>
               </div>
             ))}
             {advice.spending_summary && (
-              <div
-                style={{
-                  marginTop: '1rem',
-                  padding: '1rem',
-                  background: 'var(--bg-muted)',
-                  borderRadius: 'var(--radius)',
-                  border: '1px solid var(--border)'
-                }}
-              >
-                <p style={{ margin: '0.25rem 0', fontSize: '0.9rem', color: 'var(--text-muted)' }}>
-                  Общо разходи: {Number(advice.spending_summary.total_spent || 0).toFixed(2)} €
-                </p>
-                <p style={{ margin: '0.25rem 0', fontSize: '0.9rem', color: 'var(--text-muted)' }}>
-                  Средно на ден: {Number(advice.spending_summary.daily_average || 0).toFixed(2)} €
-                </p>
+              <div className="dashboard-ai-summary">
+                <div className="dashboard-ai-summary-item">
+                  <span className="dashboard-ai-summary-label">Период</span>
+                  <strong>365 дни</strong>
+                </div>
+                <div className="dashboard-ai-summary-item">
+                  <span className="dashboard-ai-summary-label">Общо разходи</span>
+                  <strong>{Number(advice.spending_summary.total_spent || 0).toFixed(2)} €</strong>
+                </div>
+                <div className="dashboard-ai-summary-item">
+                  <span className="dashboard-ai-summary-label">Средно на ден</span>
+                  <strong>{Number(advice.spending_summary.daily_average || 0).toFixed(2)} €</strong>
+                </div>
               </div>
             )}
           </div>

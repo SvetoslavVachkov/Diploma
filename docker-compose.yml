@@ -1,0 +1,48 @@
+services:
+  db:
+    image: mysql:8.4
+    container_name: smartbudget-db
+    environment:
+      MYSQL_DATABASE: ${DB_NAME}
+      MYSQL_USER: ${DB_USER}
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD}
+    ports:
+      - "3307:3306"
+    volumes:
+      - db_data:/var/lib/mysql
+      - ./database_schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-u${DB_USER}", "-p${DB_PASSWORD}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  api:
+    build:
+      context: ./SmartBudget
+      dockerfile: Dockerfile
+    container_name: smartbudget-api
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: ${NODE_ENV}
+      PORT: ${PORT}
+    ports:
+      - "${PORT}:${PORT}"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  web:
+    build:
+      context: ./SmartBudget/client
+      dockerfile: Dockerfile
+    container_name: smartbudget-web
+    ports:
+      - "8081:80"
+    depends_on:
+      - api
+
+volumes:
+  db_data:

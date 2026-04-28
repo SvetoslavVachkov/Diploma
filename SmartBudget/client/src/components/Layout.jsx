@@ -42,7 +42,7 @@ const Layout = ({ children }) => {
             </Link>
           </div>
           <div className="nav-user">
-            <span>{user?.first_name} {user?.last_name}</span>
+            <span className="nav-user-name">{user?.first_name} {user?.last_name}</span>
             <button type="button" onClick={handleLogout} className="btn btn-logout">
               Изход
             </button>

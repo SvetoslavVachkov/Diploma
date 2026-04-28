@@ -37,31 +37,60 @@ const isValidDateString = (date) => {
   return false;
 };
 
+const OPENAI_CHAT_URL = 'https://api.openai.com/v1/chat/completions';
 const HF_ROUTER_URL = 'https://router.huggingface.co/v1/chat/completions';
 const GROQ_CHAT_URL = 'https://api.groq.com/openai/v1/chat/completions';
 
-async function chatCompletion(prompt, { apiKey, model, groqApiKey, groqModel }, maxTokens = 2000) {
+async function chatCompletion(prompt, {
+  openaiApiKey,
+  openaiModel,
+  hfApiKey,
+  hfModel,
+  groqApiKey,
+  groqModel
+}, maxTokens = 2000) {
   const headers = { 'Content-Type': 'application/json' };
   const timeout = 60000;
 
-  if (apiKey && model) {
+  // Primary provider: OpenAI / ChatGPT models
+  if (openaiApiKey) {
     try {
-      const response = await axios.post(HF_ROUTER_URL, {
-        model,
+      const response = await axios.post(OPENAI_CHAT_URL, {
+        model: openaiModel || 'gpt-4o-mini',
         messages: [{ role: 'user', content: prompt }],
         max_tokens: maxTokens,
         temperature: 0.1
       }, {
-        headers: { ...headers, 'Authorization': `Bearer ${apiKey}` },
+        headers: { ...headers, 'Authorization': `Bearer ${openaiApiKey}` },
         timeout
       });
       const msg = response.data?.choices?.[0]?.message;
       if (msg?.content) return msg.content;
     } catch (err) {
-      if (!(groqApiKey && groqModel)) throw err;
+      // Continue to fallback providers below.
     }
   }
 
+  // Fallback 1: HuggingFace router
+  if (hfApiKey && hfModel) {
+    try {
+      const response = await axios.post(HF_ROUTER_URL, {
+        model: hfModel,
+        messages: [{ role: 'user', content: prompt }],
+        max_tokens: maxTokens,
+        temperature: 0.1
+      }, {
+        headers: { ...headers, 'Authorization': `Bearer ${hfApiKey}` },
+        timeout
+      });
+      const msg = response.data?.choices?.[0]?.message;
+      if (msg?.content) return msg.content;
+    } catch (err) {
+      // Continue to final fallback.
+    }
+  }
+
+  // Fallback 2: Groq
   if (groqApiKey && groqModel) {
     const response = await axios.post(GROQ_CHAT_URL, {
       model: groqModel,
@@ -81,8 +110,11 @@ async function chatCompletion(prompt, { apiKey, model, groqApiKey, groqModel }, 
 
 const parseStatementWithAI = async (statementText, { apiKey, model, groqApiKey, groqModel } = {}) => {
   if (!statementText) return [];
-  if (!apiKey && !groqApiKey) return [];
-  if (apiKey && !model && !groqModel) return [];
+  const openaiApiKey = process.env.OPENAI_API_KEY || null;
+  const openaiModel = process.env.OPENAI_MODEL || 'gpt-4o-mini';
+  const hfApiKey = apiKey || process.env.HF_STMT_API_KEY || process.env.HF_TXN_API_KEY || null;
+  const hfModel = model || process.env.HF_STMT_MODEL || null;
+  if (!openaiApiKey && !hfApiKey && !groqApiKey) return [];
   if (groqApiKey && !groqModel) return [];
 
   const text = String(statementText);
@@ -115,7 +147,14 @@ ${clipped}`;
 
   let outputText = '';
   try {
-    outputText = await chatCompletion(prompt, { apiKey, model, groqApiKey, groqModel }, 2000);
+    outputText = await chatCompletion(prompt, {
+      openaiApiKey,
+      openaiModel,
+      hfApiKey,
+      hfModel,
+      groqApiKey,
+      groqModel
+    }, 2000);
   } catch (error) {
     const status = error?.response?.status;
     if (status) {
